@@ -1,0 +1,10 @@
+# 단일 진입점. SITE_ADDRESS 가 도메인이면 Caddy가 자동으로 Let's Encrypt TLS 발급.
+# 도메인이 없으면 .env 의 SITE_ADDRESS=:80 (HTTP) 으로 두고 내부망에서 사용.
+{$SITE_ADDRESS} {
+	encode gzip
+
+	# 대시보드(Next.js) — 공개 API(/api/v1/*)와 관리 UI/API 모두 포함
+	reverse_proxy dashboard:3000
+
+	# WebSocket(실시간 지표)은 reverse_proxy가 자동 업그레이드 처리
+}

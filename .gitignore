@@ -1,0 +1,30 @@
+# env / secrets
+.env
+.env.local
+.env.*.local
+*.bak
+
+# 로컬 개발 전용 오버라이드 (호스트 경로 의존 — 커밋 금지)
+docker-compose.override.yml
+
+# node
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# python
+__pycache__/
+*.pyc
+.venv/
+worker/gguf/*.gguf
+
+# data
+data/
+*.db
+
+# local dev (generated)
+dashboard/prisma/schema.dev.prisma
+
+# Claude Code 로컬 설정
+.claude/

@@ -1,0 +1,25 @@
+# ── 워커 핵심 ──
+fastapi
+uvicorn[standard]
+python-multipart
+nvidia-ml-py            # pynvml (GPU 지표)
+
+# ── RAG / 추론 (기존 langserve_ollama 에서 이식) ──
+langchain
+langchain-community
+langchain-core
+langchain-ollama
+langchain-text-splitters
+faiss-cpu
+sentence-transformers
+opendataloader-pdf
+python-dotenv
+
+# ── 멀티미디어 (Whisper / OpenCV / 화자분리) ──
+openai-whisper
+ffmpeg-python
+opencv-python-headless
+
+# ── 호환성 (기존 README 의 제약 유지) ──
+numpy<2.0
+transformers<4.52

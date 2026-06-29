@@ -1,0 +1,103 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+      - ./worker/gguf:/gguf:ro                 # 비공식 GGUF 모델 마운트
+    environment:
+      OLLAMA_KEEP_ALIVE: "0"                    # 응답 후 즉시 언로드 (VRAM 절약)
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks: [internal]
+
+  worker:
+    build: ./worker
+    restart: unless-stopped
+    depends_on: [ollama]
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      RAG_STORE_DIR: /data/rag_store
+      WHISPER_DIR: /data/rag_store/whisper       # Whisper(STT) 모델 캐시 → 볼륨에 영속
+      HF_HOME: /data/rag_store/hf-cache          # 임베딩 모델 캐시 → 볼륨에 영속(재빌드 시 재다운로드 방지)
+      EMBED_DEVICE: ${EMBED_DEVICE:-cpu}
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - rag_store:/data/rag_store
+      - ./worker/gguf:/gguf:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]               # pynvml + whisper GPU
+    networks: [internal]
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-compass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-compass}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-compass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      worker:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-compass}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-compass}
+      OLLAMA_BASE_URL: http://ollama:11434
+      WORKER_BASE_URL: http://worker:8100
+      AUTH_SECRET: ${AUTH_SECRET:?set in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@compass.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set in .env}
+      METRICS_INTERVAL_MS: "2000"
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [dashboard]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}        # 도메인 있으면 example.com 으로 설정 → 자동 TLS
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [internal]
+
+volumes:
+  ollama_models:
+  rag_store:
+  pg_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    driver: bridge

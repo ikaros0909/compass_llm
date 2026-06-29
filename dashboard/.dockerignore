@@ -1,0 +1,17 @@
+# 호스트 산출물이 이미지에 섞이지 않도록 제외 (glibc node_modules·dev DB·로컬 env 등)
+node_modules
+.next
+.git
+.env
+.env.*
+*.local
+# 로컬 SQLite 개발 산출물
+dev.db
+prisma/dev.db
+prisma/*.db
+prisma/schema.dev.prisma
+# 기타
+npm-debug.log*
+Dockerfile
+.dockerignore
+README.md

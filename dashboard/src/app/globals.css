@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-bg text-gray-200 antialiased;
+  background-image:
+    radial-gradient(1200px 600px at 80% -10%, rgba(99, 102, 241, 0.08), transparent),
+    radial-gradient(900px 500px at -10% 10%, rgba(56, 189, 248, 0.05), transparent);
+  background-attachment: fixed;
+}
+
+@layer components {
+  /* 표면 */
+  .card {
+    @apply bg-panel/80 border border-border rounded-2xl p-5 shadow-soft backdrop-blur-sm;
+  }
+  .card-hover {
+    @apply transition-colors hover:border-borderlight hover:bg-elevated/70;
+  }
+
+  /* 버튼 */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium
+           bg-accent text-white transition
+           hover:bg-accent-2 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium
+           border border-border text-gray-300 transition
+           hover:bg-elevated hover:border-borderlight active:scale-[0.98] disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium
+           border border-danger/30 text-danger transition hover:bg-danger/10;
+  }
+
+  /* 입력 */
+  .input {
+    @apply bg-surface border border-border rounded-xl px-3.5 py-2.5 text-sm w-full text-gray-100
+           placeholder:text-faint outline-none transition
+           focus:border-accent focus:ring-2 focus:ring-accent/30;
+  }
+  .label {
+    @apply text-xs font-medium text-muted mb-1.5 block;
+  }
+
+  /* 내비게이션 */
+  .nav-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-muted transition
+           hover:text-gray-100 hover:bg-elevated/60;
+  }
+  .nav-link.active {
+    @apply bg-accent/10 text-white ring-1 ring-inset ring-accent/30;
+  }
+
+  /* 배지 */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+  .badge-on {
+    @apply bg-success/15 text-success;
+  }
+  .badge-off {
+    @apply bg-faint/15 text-faint;
+  }
+
+  /* 테이블 */
+  .table-row {
+    @apply border-t border-border/70 transition hover:bg-elevated/40;
+  }
+}
+
+/* 스크롤바 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-borderlight;
+}

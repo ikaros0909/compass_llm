@@ -1,0 +1,68 @@
+generator client {
+  provider      = "prisma-client-js"
+  // 로컬(native) + 도커 런타임(Debian/OpenSSL3) 엔진 모두 생성
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("admin") // admin | viewer
+  createdAt    DateTime @default(now())
+}
+
+model ApiKey {
+  id          String       @id @default(cuid())
+  name        String
+  apiKey      String       // 표시용 prefix (예: sk-3e54a8…fd3e). 비밀 아님
+  secretHash  String       @unique // sha256(토큰) — 단일 토큰 조회 키
+  isActive    Boolean      @default(true)
+  rateLimit   Int          @default(30)
+  createdAt   DateTime     @default(now())
+  requestLogs RequestLog[]
+}
+
+model RequestLog {
+  id           BigInt   @id @default(autoincrement())
+  apiKeyId     String?
+  apiKey       ApiKey?  @relation(fields: [apiKeyId], references: [id])
+  endpoint     String
+  model        String?
+  status       Int
+  latencyMs    Int
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  clientIp     String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([apiKeyId, createdAt])
+}
+
+model MetricSample {
+  id          BigInt   @id @default(autoincrement())
+  gpuIndex    Int
+  utilization Float
+  memUsedMb   Int
+  memTotalMb  Int
+  tempC       Float
+  powerW      Float
+  loadedModel String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model RagCollection {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String   @default("")
+  fileCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+}
