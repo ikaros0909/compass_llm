@@ -66,3 +66,36 @@ model RagCollection {
   fileCount   Int      @default(0)
   createdAt   DateTime @default(now())
 }
+
+// 코드리뷰 설정 (싱글턴, id="default"). token 은 서버 전용 — 클라이언트에 노출하지 않음.
+model CodeReviewConfig {
+  id           String   @id @default("default")
+  provider     String   @default("bitbucket_cloud")
+  workspace    String   @default("jinhaksa")
+  repoSlugs    String   @default("") // 쉼표로 구분된 저장소 slug 목록 (다중 선택)
+  authUsername String   @default("") // App Password 사용 시 Basic 인증용 (비우면 Access Token=Bearer)
+  token        String   @default("") // Access Token 또는 App Password
+  model        String   @default("") // 설치된 Ollama 모델
+  intervalMin  Int      @default(10)
+  enabled      Boolean  @default(false)
+  autoApprove  Boolean  @default(false) // 중대한 문제 없으면 PR 자동 승인
+  systemPrompt String   @default("")
+  updatedAt    DateTime @updatedAt
+}
+
+// 코드리뷰 이력 (재리뷰 중복 방지 + 화면 표시)
+model CodeReviewLog {
+  id         BigInt   @id @default(autoincrement())
+  repoSlug   String   @default("")
+  prId       Int
+  prTitle    String   @default("")
+  headCommit String   @default("")
+  status     String   // posted | error
+  approval   String   @default("") // "" 미사용 | approved | changes | failed
+  message    String   @default("") // 요약 또는 오류
+  commentId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([repoSlug, prId, headCommit])
+  @@index([createdAt])
+}

@@ -3,10 +3,12 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { ensureAdminSeed } = await import("./lib/auth");
   const { startMetricsCollector } = await import("./lib/metrics");
+  const { startCodeReviewPoller } = await import("./lib/codereview");
   try {
     await ensureAdminSeed();
   } catch (e) {
     console.error("[boot] admin seed failed (db not ready?)", e);
   }
   startMetricsCollector();
+  startCodeReviewPoller();
 }

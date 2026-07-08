@@ -59,6 +59,22 @@ export interface ChatMessage {
   images?: string[]; // base64
 }
 
+// 비스트리밍 1회 응답 (코드리뷰 등 백그라운드 작업용). 최종 content 반환.
+export async function chatComplete(
+  model: string,
+  messages: ChatMessage[],
+  options?: { temperature?: number },
+): Promise<string> {
+  const r = await fetch(`${BASE}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages, stream: false, options }),
+  });
+  if (!r.ok) throw new Error(`ollama chat ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j = await r.json();
+  return j.message?.content ?? "";
+}
+
 // 채팅 스트리밍 (NDJSON). 호출부에서 토큰/지연시간 집계.
 // signal: 클라이언트가 끊으면 상류(Ollama) 생성도 취소되도록 전달.
 export async function chatStream(

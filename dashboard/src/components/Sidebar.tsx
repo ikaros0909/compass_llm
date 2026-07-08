@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Boxes, KeyRound, Library, ScrollText, MessagesSquare,
-  Users, LogOut, Compass, PanelLeftClose, PanelLeftOpen,
+  Users, LogOut, Compass, PanelLeftClose, PanelLeftOpen, GitPullRequest,
 } from "lucide-react";
 
 const NAV = [
@@ -14,6 +14,7 @@ const NAV = [
   { href: "/rag", label: "RAG", icon: Library },
   { href: "/logs", label: "로그", icon: ScrollText },
   { href: "/playground", label: "플레이그라운드", icon: MessagesSquare },
+  { href: "/codereview", label: "코드리뷰", icon: GitPullRequest },
   { href: "/accounts", label: "계정 관리", icon: Users },
 ];
 
