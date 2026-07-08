@@ -132,25 +132,15 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
           review = review.replace(/\[VERDICT:\s*(APPROVE|CHANGES)\]/ig, "").trim(); // 태그는 코멘트에서 제거
         }
 
-        // 자동 승인 실행 (approve API)
-        let approveNote = "";
-        let approveOk = false;
-        if (approve) {
-          const appr = await bbRepo(cfg, repoSlug, `/pullrequests/${pr.id}/approve`, { method: "POST" });
-          approveOk = appr.ok;
-          approveNote = appr.ok ? " · ✅ 자동 승인됨" : ` · ⚠ 자동 승인 실패(${appr.status})`;
-        }
-        // 승인 상태: "" 미사용 | approved 승인됨 | changes 변경요청 | failed 승인API실패
-        const approval = !cfg.autoApprove ? "" : (approve ? (approveOk ? "approved" : "failed") : "changes");
-
         const verdictLine = cfg.autoApprove
-          ? (approve ? `\n\n✅ **자동 승인** — 중대한 문제가 발견되지 않았습니다.${approveNote.includes("실패") ? " (승인 API 실패)" : ""}`
+          ? (approve ? `\n\n✅ **자동 승인** — 중대한 문제가 발견되지 않았습니다.`
                      : "\n\n🔸 **변경 요청** — 확인이 필요한 사항이 있어 자동 승인은 보류했습니다.")
           : "";
         const body =
           `🤖 **자동 코드리뷰** · 모델 \`${cfg.model}\`\n\n${review}${verdictLine}\n\n` +
           `---\n_커밋 \`${head.slice(0, 8)}\` 기준 자동 생성${truncated ? " · diff 일부 생략" : ""}_`;
 
+        // ① 리뷰 코멘트를 먼저 게시
         const post = await bbRepo(cfg, repoSlug, `/pullrequests/${pr.id}/comments`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -158,10 +148,21 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         });
         if (!post.ok) throw new Error(`코멘트 게시 ${post.status}: ${(await post.text()).slice(0, 120)}`);
         const pj = await post.json().catch(() => ({}));
+
+        // ② 코멘트 게시가 끝난 뒤에 승인 처리
+        let approveOk = false;
+        if (approve) {
+          const appr = await bbRepo(cfg, repoSlug, `/pullrequests/${pr.id}/approve`, { method: "POST" });
+          approveOk = appr.ok;
+        }
+        // 승인 상태: "" 미사용 | approved 승인됨 | changes 변경요청 | failed 승인API실패
+        const approval = !cfg.autoApprove ? "" : (approve ? (approveOk ? "approved" : "failed") : "changes");
+
         await prisma.codeReviewLog.create({
           data: { repoSlug, prId: pr.id, prTitle: pr.title, headCommit: head, diffHash, status: "posted", approval, message: review.slice(0, 500), commentId: String(pj.id ?? "") },
         });
-        out.reviewed++; out.details.push(`[${repoSlug}] #${pr.id} 리뷰 게시${cfg.autoApprove ? (approve ? approveNote || " · 승인" : " · 변경요청") : ""}`);
+        const approveDetail = !cfg.autoApprove ? "" : (approve ? (approveOk ? " · ✅ 승인" : " · ⚠ 승인실패") : " · 변경요청");
+        out.reviewed++; out.details.push(`[${repoSlug}] #${pr.id} 리뷰 게시${approveDetail}`);
       } catch (e: any) {
         out.errors++;
         await prisma.codeReviewLog.create({
