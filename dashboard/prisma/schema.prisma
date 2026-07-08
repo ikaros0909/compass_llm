@@ -90,6 +90,7 @@ model CodeReviewLog {
   prId       Int
   prTitle    String   @default("")
   headCommit String   @default("")
+  diffHash   String   @default("") // 변경 내용(diff) 해시 — 커밋이 바뀌어도 코드가 같으면 재리뷰 안 함
   status     String   // posted | error
   approval   String   @default("") // "" 미사용 | approved | changes | failed
   message    String   @default("") // 요약 또는 오류

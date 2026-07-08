@@ -1,10 +1,12 @@
 // Bitbucket Cloud 자동 코드리뷰.
 // - 열린 PR 을 주기적으로 조회 → 새 head 커밋이면 diff 를 모델로 리뷰 → 요약 코멘트 1건 게시.
 // - token 은 서버 전용(DB), 클라이언트에 노출하지 않는다.
+import { createHash } from "crypto";
 import { prisma } from "./db";
 import { chatComplete } from "./ollama";
 
 const API = "https://api.bitbucket.org/2.0";
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 export const DEFAULT_SYSTEM_PROMPT =
   "당신은 숙련된 시니어 소프트웨어 엔지니어이자 코드 리뷰어입니다. " +
@@ -91,12 +93,18 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
 
     for (const pr of prs) {
       const head: string = pr.source?.commit?.hash ?? "";
-      const already = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId: pr.id, headCommit: head, status: "posted" } });
-      if (already) { out.skipped++; continue; }
+      // 1) 같은 커밋을 이미 리뷰했으면 즉시 스킵 (diff 조회 불필요 — 빠른 경로)
+      const byCommit = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId: pr.id, headCommit: head, status: "posted" } });
+      if (byCommit) { out.skipped++; continue; }
       try {
         const diffRes = await bbRepo(cfg, repoSlug, `/pullrequests/${pr.id}/diff`);
         if (!diffRes.ok) throw new Error(`diff ${diffRes.status}`);
-        let diff = await diffRes.text();
+        const fullDiff = await diffRes.text();
+        const diffHash = sha256(fullDiff);
+        // 2) 커밋 해시는 달라졌지만 실제 변경 내용(diff)이 동일하면 스킵 (리베이스·머지·CI 봇 커밋 등으로 코드는 그대로)
+        const byDiff = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId: pr.id, diffHash, status: "posted" } });
+        if (byDiff) { out.skipped++; out.details.push(`[${repoSlug}] #${pr.id} 코드 변경 없음 — 재리뷰 생략(커밋만 변경)`); continue; }
+        let diff = fullDiff;
         const truncated = diff.length > MAX_DIFF;
         if (truncated) diff = diff.slice(0, MAX_DIFF) + "\n... (diff 가 길어 이후 생략됨)";
 
@@ -151,7 +159,7 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         if (!post.ok) throw new Error(`코멘트 게시 ${post.status}: ${(await post.text()).slice(0, 120)}`);
         const pj = await post.json().catch(() => ({}));
         await prisma.codeReviewLog.create({
-          data: { repoSlug, prId: pr.id, prTitle: pr.title, headCommit: head, status: "posted", approval, message: review.slice(0, 500), commentId: String(pj.id ?? "") },
+          data: { repoSlug, prId: pr.id, prTitle: pr.title, headCommit: head, diffHash, status: "posted", approval, message: review.slice(0, 500), commentId: String(pj.id ?? "") },
         });
         out.reviewed++; out.details.push(`[${repoSlug}] #${pr.id} 리뷰 게시${cfg.autoApprove ? (approve ? approveNote || " · 승인" : " · 변경요청") : ""}`);
       } catch (e: any) {
