@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession, hashPassword } from "@/lib/auth";
+import { audit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -24,11 +25,11 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error, session } = await requireAdmin();
   if (error) return error;
   const { email, password, role } = await req.json();
   if (!email?.trim() || !password) return NextResponse.json({ error: "이메일과 비밀번호를 입력하세요." }, { status: 400 });
-  if (password.length < 4) return NextResponse.json({ error: "비밀번호는 4자 이상이어야 합니다." }, { status: 400 });
+  if (password.length < 8) return NextResponse.json({ error: "비밀번호는 8자 이상이어야 합니다." }, { status: 400 });
   if (role && !ROLES.includes(role)) return NextResponse.json({ error: "역할이 올바르지 않습니다." }, { status: 400 });
 
   const exists = await prisma.adminUser.findUnique({ where: { email: email.trim() } });
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
   const user = await prisma.adminUser.create({
     data: { email: email.trim(), passwordHash: await hashPassword(password), role: role ?? "viewer" },
   });
+  audit("user.create", { by: session!.email, targetId: user.id, email: user.email, role: user.role });
   return NextResponse.json({ id: user.id, email: user.email, role: user.role });
 }
 
@@ -56,7 +58,7 @@ export async function PATCH(req: NextRequest) {
     if (adminCount <= 1) return NextResponse.json({ error: "마지막 관리자는 강등할 수 없습니다." }, { status: 400 });
   }
   if (role && !ROLES.includes(role)) return NextResponse.json({ error: "역할이 올바르지 않습니다." }, { status: 400 });
-  if (password !== undefined && password.length < 4) return NextResponse.json({ error: "비밀번호는 4자 이상이어야 합니다." }, { status: 400 });
+  if (password !== undefined && password.length < 8) return NextResponse.json({ error: "비밀번호는 8자 이상이어야 합니다." }, { status: 400 });
 
   await prisma.adminUser.update({
     where: { id },
@@ -65,6 +67,7 @@ export async function PATCH(req: NextRequest) {
       ...(password ? { passwordHash: await hashPassword(password) } : {}),
     },
   });
+  audit("user.update", { by: session!.email, targetId: id, ...(role ? { role } : {}), passwordReset: !!password });
   return NextResponse.json({ ok: true });
 }
 
@@ -82,5 +85,6 @@ export async function DELETE(req: NextRequest) {
     if (adminCount <= 1) return NextResponse.json({ error: "마지막 관리자는 삭제할 수 없습니다." }, { status: 400 });
   }
   await prisma.adminUser.delete({ where: { id } });
+  audit("user.delete", { by: session!.email, targetId: id, email: target.email });
   return NextResponse.json({ ok: true });
 }

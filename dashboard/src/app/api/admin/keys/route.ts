@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateKey } from "@/lib/apiKeys";
+import { requireAdmin } from "@/lib/authz";
+import { audit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -28,14 +30,19 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const { error, session } = await requireAdmin();
+  if (error) return error;
   const { name, rateLimit } = await req.json();
   if (!name?.trim()) return NextResponse.json({ error: "name required" }, { status: 400 });
   // secretKey 는 이 응답에서 단 1회만 노출
   const created = await generateKey(name.trim(), rateLimit ?? 30);
+  audit("apikey.create", { by: session!.email, name: name.trim(), rateLimit: rateLimit ?? 30 });
   return NextResponse.json(created);
 }
 
 export async function PATCH(req: NextRequest) {
+  const { error } = await requireAdmin();
+  if (error) return error;
   const { id, isActive, rateLimit } = await req.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   await prisma.apiKey.update({
@@ -49,8 +56,11 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const { error, session } = await requireAdmin();
+  if (error) return error;
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   await prisma.apiKey.delete({ where: { id } });
+  audit("apikey.delete", { by: session!.email, keyId: id });
   return NextResponse.json({ ok: true });
 }

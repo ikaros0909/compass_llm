@@ -3,8 +3,8 @@ import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { cookies, headers } from "next/headers";
 import { prisma } from "./db";
+import { authSecret } from "./authSecret";
 
-const SECRET = new TextEncoder().encode(process.env.AUTH_SECRET ?? "dev-secret");
 const COOKIE = "compass_session";
 
 export interface Session {
@@ -27,7 +27,7 @@ export async function createSession(user: Session) {
     .setSubject(user.sub)
     .setIssuedAt()
     .setExpirationTime("12h")
-    .sign(SECRET);
+    .sign(authSecret());
   // 실제 접속 프로토콜에 따라 Secure 결정 (Caddy 가 x-forwarded-proto 설정).
   // HTTP(내부망/IP 접속)면 Secure 를 끄지 않으면 브라우저가 쿠키를 버려 로그인 안 됨.
   const isHttps = headers().get("x-forwarded-proto") === "https";
@@ -44,7 +44,7 @@ export async function getSession(): Promise<Session | null> {
   const token = cookies().get(COOKIE)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, SECRET);
+    const { payload } = await jwtVerify(token, authSecret());
     return {
       sub: payload.sub as string,
       email: payload.email as string,

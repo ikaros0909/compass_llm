@@ -2,14 +2,13 @@
 // (키 유효성·Rate limit 의 실제 검증은 각 /api/v1 route 에서 수행 — DB 접근이 필요해서)
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
-
-const SECRET = new TextEncoder().encode(process.env.AUTH_SECRET ?? "dev-secret");
+import { authSecret } from "./lib/authSecret";
 
 async function hasValidSession(req: NextRequest) {
   const token = req.cookies.get("compass_session")?.value;
   if (!token) return false;
   try {
-    await jwtVerify(token, SECRET);
+    await jwtVerify(token, authSecret());
     return true;
   } catch {
     return false;

@@ -2,10 +2,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { listRepos } from "@/lib/codereview";
+import { requireAdmin } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  const { error } = await requireAdmin();
+  if (error) return error;
   const b = await req.json().catch(() => ({}));
   const existing = await prisma.codeReviewConfig.findUnique({ where: { id: "default" } });
   const cfg = {

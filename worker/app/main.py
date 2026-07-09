@@ -20,6 +20,8 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
+from .safepath import safe_filename, safe_segment
+
 app = FastAPI(title="Compass Worker")
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434")
@@ -91,7 +93,11 @@ def rag_create_collection(req: CollectionCreate):
     from . import rag
     if not req.name.strip():
         raise HTTPException(400, "컬렉션 이름을 입력하세요.")
-    r = rag.create_collection(req.name.strip(), req.description)
+    try:
+        name = safe_segment(req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    r = rag.create_collection(name, req.description)
     if "error" in r:
         raise HTTPException(409, r["error"])
     return r
@@ -100,6 +106,10 @@ def rag_create_collection(req: CollectionCreate):
 @app.delete("/rag/collections/{name}")
 def rag_delete_collection(name: str):
     from . import rag
+    try:
+        name = safe_segment(name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if rag.delete_collection(name):
         return {"message": f"컬렉션 '{name}' 삭제됨"}
     raise HTTPException(404, "컬렉션을 찾을 수 없습니다.")
@@ -108,6 +118,10 @@ def rag_delete_collection(name: str):
 @app.get("/rag/collections/{name}/files")
 def rag_list_files(name: str):
     from . import rag
+    try:
+        name = safe_segment(name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return {"collection": name, "files": rag.list_files(name)}
 
 
@@ -120,6 +134,10 @@ async def rag_upload(
 ):
     """PDF/텍스트 파일을 컬렉션에 업로드 → 임베딩. 컬렉션 없으면 자동 생성."""
     from . import rag
+    try:
+        collection = safe_segment(collection)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     all_files = list(files) if files else []
     if file:
         all_files.append(file)
@@ -133,10 +151,14 @@ async def rag_upload(
     results = []
     try:
         for uf in all_files:
-            path = os.path.join(tmp, uf.filename)
+            try:
+                fname = safe_filename(uf.filename or "")
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            path = os.path.join(tmp, fname)
             with open(path, "wb") as f:
                 f.write(await uf.read())
-            results.append(rag.add_file(collection, path, uf.filename))
+            results.append(rag.add_file(collection, path, fname))
         return {"collection": collection, "uploaded": results}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -145,6 +167,11 @@ async def rag_upload(
 @app.delete("/rag/collections/{name}/files/{filename}")
 def rag_delete_file(name: str, filename: str):
     from . import rag
+    try:
+        name = safe_segment(name)
+        filename = safe_filename(filename)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if rag.delete_file(name, filename):
         return {"message": f"'{filename}' 삭제됨"}
     raise HTTPException(404, "파일을 찾을 수 없습니다.")
@@ -154,7 +181,11 @@ def rag_delete_file(name: str, filename: str):
 def rag_search(req: SearchRequest):
     """컬렉션에서 관련 청크 검색 (대시보드 chat 의 rag_collection 연동용)."""
     from . import rag
-    return {"results": rag.search(req.collection, req.query, req.k, req.mode)}
+    try:
+        collection = safe_segment(req.collection)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"results": rag.search(collection, req.query, req.k, req.mode)}
 
 
 # ──────────────────────────────────────────────────────────
@@ -189,6 +220,10 @@ def stt_download(req: WhisperDownload):
 
 @app.delete("/stt/models/{size}")
 def stt_delete(size: str):
+    try:
+        size = safe_segment(size)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     p = os.path.join(WHISPER_DIR, f"{size}.pt")
     if os.path.exists(p):
         os.remove(p)
@@ -211,8 +246,12 @@ async def transcribe_ep(
     if format not in ("json", "srt", "vtt", "text"):
         raise HTTPException(400, "format 은 json | srt | vtt | text")
 
+    try:
+        fname = safe_filename(file.filename or "")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     tmp = tempfile.mkdtemp()
-    fp = os.path.join(tmp, file.filename)
+    fp = os.path.join(tmp, fname)
     try:
         with open(fp, "wb") as f:
             f.write(await file.read())

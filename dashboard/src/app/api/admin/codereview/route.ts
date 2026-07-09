@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/codereview";
+import { requireAdmin } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,8 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  const { error } = await requireAdmin();
+  if (error) return error;
   const b = await req.json();
   const existing = await prisma.codeReviewConfig.findUnique({ where: { id: "default" } });
   // token 은 값이 넘어온 경우에만 갱신 (빈 값이면 기존 유지)

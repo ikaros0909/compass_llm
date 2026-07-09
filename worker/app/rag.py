@@ -16,6 +16,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores.faiss import FAISS
 from langchain_community.embeddings.huggingface import HuggingFaceEmbeddings
 
+from .safepath import safe_join, safe_filename
+
 BASE_DIR = os.environ.get("RAG_STORE_DIR", "/data/rag_store")
 METADATA_FILE = os.path.join(BASE_DIR, "collections.json")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-m3")
@@ -96,7 +98,7 @@ def create_collection(name: str, description: str = "") -> Dict:
     meta = _load_meta()
     if name in meta:
         return {"error": f"컬렉션 '{name}'이 이미 존재합니다."}
-    os.makedirs(os.path.join(BASE_DIR, name, "files"), exist_ok=True)
+    os.makedirs(safe_join(BASE_DIR, name, "files"), exist_ok=True)
     meta[name] = {"description": description, "files": []}
     _save_meta(meta)
     return {"name": name, "description": description}
@@ -106,7 +108,7 @@ def delete_collection(name: str) -> bool:
     meta = _load_meta()
     if name not in meta:
         return False
-    shutil.rmtree(os.path.join(BASE_DIR, name), ignore_errors=True)
+    shutil.rmtree(safe_join(BASE_DIR, name), ignore_errors=True)
     del meta[name]
     _save_meta(meta)
     return True
@@ -126,8 +128,9 @@ def add_file(name: str, file_path: str, filename: str) -> Dict:
     meta = _load_meta()
     if name not in meta:
         return {"error": f"컬렉션 '{name}'이 존재하지 않습니다."}
-    col_dir = os.path.join(BASE_DIR, name)
-    dest = os.path.join(col_dir, "files", filename)
+    filename = safe_filename(filename)
+    col_dir = safe_join(BASE_DIR, name)
+    dest = safe_join(col_dir, "files", filename)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     shutil.copy2(file_path, dest)
 
@@ -161,8 +164,9 @@ def delete_file(name: str, filename: str) -> bool:
     meta = _load_meta()
     if name not in meta or filename not in meta[name]["files"]:
         return False
-    col_dir = os.path.join(BASE_DIR, name)
-    fp = os.path.join(col_dir, "files", filename)
+    filename = safe_filename(filename)
+    col_dir = safe_join(BASE_DIR, name)
+    fp = safe_join(col_dir, "files", filename)
     if os.path.exists(fp):
         os.remove(fp)
     meta[name]["files"].remove(filename)
@@ -172,7 +176,7 @@ def delete_file(name: str, filename: str) -> bool:
 
 
 def _rebuild_index(name: str):
-    col_dir = os.path.join(BASE_DIR, name)
+    col_dir = safe_join(BASE_DIR, name)
     faiss_path = os.path.join(col_dir, "faiss_index")
     if os.path.exists(faiss_path):
         shutil.rmtree(faiss_path)
@@ -191,7 +195,7 @@ def _rebuild_index(name: str):
 
 def search(name: str, query: str, k: int = 8, mode: str = "search") -> List[Dict]:
     """컬렉션에서 관련 청크 반환. mode=full 이면 전체 문서."""
-    col_dir = os.path.join(BASE_DIR, name)
+    col_dir = safe_join(BASE_DIR, name)
     faiss_path = os.path.join(col_dir, "faiss_index")
     if not os.path.exists(faiss_path):
         return []
