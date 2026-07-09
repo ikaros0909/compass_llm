@@ -21,8 +21,8 @@ export async function verifyPassword(plain: string, hash: string) {
   return bcrypt.compare(plain, hash);
 }
 
-export async function createSession(user: Session) {
-  const token = await new SignJWT({ email: user.email, role: user.role })
+export async function createSession(user: Session & { sessionEpoch: number }) {
+  const token = await new SignJWT({ email: user.email, role: user.role, epoch: user.sessionEpoch })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.sub)
     .setIssuedAt()
@@ -45,11 +45,16 @@ export async function getSession(): Promise<Session | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, authSecret());
-    return {
-      sub: payload.sub as string,
-      email: payload.email as string,
-      role: payload.role as string,
-    };
+    const sub = payload.sub as string;
+    // DB 재확인: 계정 삭제·비밀번호 변경·역할 변경 시 기존 토큰을 즉시 무효화하고,
+    // 역할/이메일은 항상 최신 DB 값을 사용(권한 변경 즉시 반영).
+    const user = await prisma.adminUser.findUnique({
+      where: { id: sub },
+      select: { email: true, role: true, sessionEpoch: true },
+    });
+    if (!user) return null;
+    if ((payload.epoch as number | undefined) !== user.sessionEpoch) return null;
+    return { sub, email: user.email, role: user.role };
   } catch {
     return null;
   }

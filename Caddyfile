@@ -4,7 +4,12 @@
 	encode gzip
 
 	# 대시보드(Next.js) — 공개 API(/api/v1/*)와 관리 UI/API 모두 포함
-	reverse_proxy dashboard:3000
+	reverse_proxy dashboard:3000 {
+		# 클라이언트가 위조해 보낸 X-Forwarded-For 를 무시하고 실제 접속 IP 로 덮어쓴다.
+		# (로그/레이트리밋/로그인 스로틀이 스푸핑된 IP 에 속지 않도록)
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
 
 	# WebSocket(실시간 지표)은 reverse_proxy가 자동 업그레이드 처리
 }

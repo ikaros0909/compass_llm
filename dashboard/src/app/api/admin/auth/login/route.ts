@@ -27,6 +27,6 @@ export async function POST(req: NextRequest) {
   }
   recordLoginSuccess(ip);
   audit("login.success", { ip, email: user.email, userId: user.id });
-  await createSession({ sub: user.id, email: user.email, role: user.role });
+  await createSession({ sub: user.id, email: user.email, role: user.role, sessionEpoch: user.sessionEpoch });
   return NextResponse.json({ ok: true });
 }

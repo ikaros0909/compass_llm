@@ -65,6 +65,8 @@ export async function PATCH(req: NextRequest) {
     data: {
       ...(role ? { role } : {}),
       ...(password ? { passwordHash: await hashPassword(password) } : {}),
+      // 역할·비밀번호 변경 시 대상 사용자의 기존 세션을 무효화(재로그인 강제).
+      ...(role || password ? { sessionEpoch: { increment: 1 } } : {}),
     },
   });
   audit("user.update", { by: session!.email, targetId: id, ...(role ? { role } : {}), passwordReset: !!password });
