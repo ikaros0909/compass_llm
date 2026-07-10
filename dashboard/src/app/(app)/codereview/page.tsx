@@ -22,6 +22,8 @@ export default function CodeReviewPage() {
   const [loadMsg, setLoadMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [runMsg, setRunMsg] = useState("");
   const [busy, setBusy] = useState<"" | "save" | "load" | "run">("");
+  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [dirty, setDirty] = useState(false); // 저장되지 않은 변경 여부
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleRow = (id: string) =>
     setExpanded((s) => {
@@ -57,17 +59,35 @@ export default function CodeReviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, tokenSet]);
 
-  const up = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
-  const toggleRepo = (slug: string) => setForm((f) => ({
-    ...f, repoSlugs: f.repoSlugs.includes(slug) ? f.repoSlugs.filter((s) => s !== slug) : [...f.repoSlugs, slug],
-  }));
+  const up = (k: string, v: any) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); setSaveMsg(null); };
+  const toggleRepo = (slug: string) => {
+    setForm((f) => ({
+      ...f, repoSlugs: f.repoSlugs.includes(slug) ? f.repoSlugs.filter((s) => s !== slug) : [...f.repoSlugs, slug],
+    }));
+    setDirty(true); setSaveMsg(null);
+  };
 
   async function save() {
-    setBusy("save");
-    await fetch("/api/admin/codereview", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
-    if (form.token) setTokenSet(true);
-    setForm((f) => ({ ...f, token: "" }));
-    setBusy(""); mutate();
+    setBusy("save"); setSaveMsg(null);
+    try {
+      const res = await fetch("/api/admin/codereview", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      if (res.ok) {
+        if (form.token) setTokenSet(true);
+        setForm((f) => ({ ...f, token: "" }));
+        setDirty(false);
+        setSaveMsg({ ok: true, text: "저장되었습니다." });
+        mutate();
+      } else if (res.status === 401 || res.status === 403) {
+        setSaveMsg({ ok: false, text: "세션이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요." });
+      } else {
+        const j = await res.json().catch(() => ({}));
+        setSaveMsg({ ok: false, text: j.error || `저장 실패 (HTTP ${res.status})` });
+      }
+    } catch {
+      setSaveMsg({ ok: false, text: "네트워크 오류로 저장하지 못했습니다." });
+    } finally {
+      setBusy("");
+    }
   }
   async function loadRepos() {
     setBusy("load"); setLoadMsg(null);
@@ -186,9 +206,18 @@ export default function CodeReviewPage() {
             <label className="label">시스템 프롬프트 <span className="text-faint">(기본값이 채워져 있음 — 바로 편집 가능)</span></label>
             <textarea className="input h-32 resize-y text-xs leading-relaxed" value={form.systemPrompt} onChange={(e) => up("systemPrompt", e.target.value)} />
           </div>
-          <div className="flex gap-2 pt-1">
+          <div className="flex items-center gap-2 pt-1 flex-wrap">
             <button className="btn" onClick={save} disabled={!!busy}>{busy === "save" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 저장</button>
             <button className="btn-ghost" onClick={run} disabled={!!busy}>{busy === "run" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />} 지금 리뷰 실행</button>
+            {saveMsg ? (
+              <span className={`text-xs flex items-center gap-1 ${saveMsg.ok ? "text-success" : "text-danger"}`}>
+                {saveMsg.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />} {saveMsg.text}
+              </span>
+            ) : dirty ? (
+              <span className="text-xs flex items-center gap-1 text-warn">
+                <span className="w-1.5 h-1.5 rounded-full bg-warn inline-block" /> 저장되지 않은 변경사항
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
