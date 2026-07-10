@@ -60,6 +60,7 @@ export async function listRepos(cfg: { workspace: string; authUsername: string; 
 }
 
 const MAX_DIFF = 16000; // 컨텍스트 보호용 diff 절단 길이
+const MAX_STORED_REVIEW = 20000; // 이력에 저장할 리뷰 본문 최대 길이(펼쳐보기용 — 사실상 전문)
 
 // 동시 실행 방지 잠금: 리뷰 생성이 폴링 주기보다 오래 걸려도(또는 수동 실행이 겹쳐도)
 // 같은 PR 이 중복 리뷰되지 않도록 한 번에 하나의 runReview 만 실행.
@@ -160,7 +161,7 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         const approval = !cfg.autoApprove ? "" : (approve ? (approveOk ? "approved" : "failed") : "changes");
 
         await prisma.codeReviewLog.create({
-          data: { repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, diffHash, status: "posted", approval, message: review.slice(0, 500), commentId: String(pj.id ?? "") },
+          data: { repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, diffHash, status: "posted", approval, message: review.slice(0, MAX_STORED_REVIEW), commentId: String(pj.id ?? "") },
         });
         const approveDetail = !cfg.autoApprove ? "" : (approve ? (approveOk ? " · ✅ 승인" : " · ⚠ 승인실패") : " · 변경요청");
         out.reviewed++; out.details.push(`[${repoSlug}] #${pr.id} 리뷰 게시${approveDetail}`);
