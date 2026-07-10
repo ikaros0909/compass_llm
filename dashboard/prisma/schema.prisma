@@ -97,6 +97,12 @@ model CodeReviewLog {
   diffHash   String   @default("") // 변경 내용(diff) 해시 — 커밋이 바뀌어도 코드가 같으면 재리뷰 안 함
   status     String   // posted | error
   approval   String   @default("") // "" 미사용 | approved | changes | failed
+  // 코드 품질 척도 (모델이 리뷰 끝에 [[META]] JSON 으로 산출)
+  qualityScore  Int?     // 1~5 (5=매우 우수)
+  riskLevel     String   @default("") // low | medium | high (버그·보안 문제 가능성)
+  confidence    String   @default("") // low | medium | high (모델 판단 확신도)
+  needsReview   Boolean  @default(false) // 자동승인이어도 사람이 다시 볼 것을 권장
+  reviewReasons String   @default("") // 감점·우려 사유 JSON 배열
   message    String   @default("") // 요약 또는 오류
   commentId  String?
   createdAt  DateTime @default(now())

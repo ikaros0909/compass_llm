@@ -62,6 +62,30 @@ export async function listRepos(cfg: { workspace: string; authUsername: string; 
 const MAX_DIFF = 16000; // 컨텍스트 보호용 diff 절단 길이
 const MAX_STORED_REVIEW = 20000; // 이력에 저장할 리뷰 본문 최대 길이(펼쳐보기용 — 사실상 전문)
 
+const RISK_KO: Record<string, string> = { low: "낮음", medium: "중간", high: "높음" };
+
+interface ReviewMeta { quality: number | null; risk: string; confidence: string; reasons: string[] }
+
+// 리뷰 끝의 [[META]]{...} JSON 을 파싱하고 본문에서 제거한다.
+// JSON 이 깨졌더라도 [[META]] 마커 이후는 항상 잘라내 코멘트에 노출되지 않게 한다.
+function parseMeta(text: string): { cleaned: string; meta: ReviewMeta | null } {
+  const idx = text.indexOf("[[META]]");
+  if (idx === -1) return { cleaned: text.trim(), meta: null };
+  const cleaned = text.slice(0, idx).trim();
+  const json = text.slice(idx + "[[META]]".length).match(/\{[\s\S]*\}/);
+  if (!json) return { cleaned, meta: null };
+  try {
+    const j = JSON.parse(json[0]);
+    const qn = Math.round(Number(j.quality));
+    const quality = Number.isFinite(qn) ? Math.max(1, Math.min(5, qn)) : null;
+    const norm = (v: unknown) => (["low", "medium", "high"].includes(String(v)) ? String(v) : "");
+    const reasons = Array.isArray(j.reasons) ? j.reasons.map((r: unknown) => String(r).slice(0, 200)).slice(0, 5) : [];
+    return { cleaned, meta: { quality, risk: norm(j.risk), confidence: norm(j.confidence), reasons } };
+  } catch {
+    return { cleaned, meta: null };
+  }
+}
+
 // 동시 실행 방지 잠금: 리뷰 생성이 폴링 주기보다 오래 걸려도(또는 수동 실행이 겹쳐도)
 // 같은 PR 이 중복 리뷰되지 않도록 한 번에 하나의 runReview 만 실행.
 let reviewRunning = false;
@@ -112,10 +136,15 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
 
         let sys = `${cfg.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT}\n\n(참고: 이 리뷰에 사용된 모델명은 정확히 "${cfg.model}" 입니다. 모델명을 표기할 때 이 값을 그대로 사용하세요.)`;
         if (cfg.autoApprove) {
-          sys += `\n\n리뷰 맨 마지막 줄에 반드시 다음 중 하나만 정확히 출력하세요: ` +
+          sys += `\n\n리뷰 본문 아래에 다음 중 하나만 정확히 출력하세요: ` +
             `"[VERDICT: APPROVE]" (버그·보안·설계상 중대한 문제가 없어 그대로 머지 가능) 또는 ` +
             `"[VERDICT: CHANGES]" (수정이 필요함). 조금이라도 애매하거나 확신이 없으면 반드시 CHANGES 로 하세요.`;
         }
+        // 품질 척도(5점) — 응답의 가장 마지막 줄에 기계 판독용 JSON 을 강제.
+        sys += `\n\n그리고 응답의 가장 마지막 줄에 아래 형식의 메타데이터를 반드시 한 줄로 출력하세요(설명 없이 JSON 만):\n` +
+          `[[META]]{"quality":<1~5 정수>,"risk":"low|medium|high","confidence":"low|medium|high","reasons":["짧은 사유"]}\n` +
+          `- quality(코드 품질): 5=매우 우수(문제 거의 없음) · 4=양호(사소한 개선) · 3=보통(몇 가지 수정 권장) · 2=우려(중요한 문제) · 1=심각(버그·보안 등 중대)\n` +
+          `- risk=버그·보안 등 실제 문제 가능성, confidence=이 판단의 확신도(diff 가 잘렸거나 컨텍스트가 부족하면 낮게), reasons=감점·우려 근거를 3개 이내로 짧게.`;
         let review = await chatComplete(cfg.model, [
           { role: "system", content: sys },
           {
@@ -129,17 +158,32 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
 
         // 자동 승인 판정 (명시적 APPROVE 일 때만 승인 — 안전 기본값)
         let approve = false;
-        if (cfg.autoApprove) {
-          approve = /\[VERDICT:\s*APPROVE\]/i.test(review);
-          review = review.replace(/\[VERDICT:\s*(APPROVE|CHANGES)\]/ig, "").trim(); // 태그는 코멘트에서 제거
-        }
+        if (cfg.autoApprove) approve = /\[VERDICT:\s*APPROVE\]/i.test(review);
+        // 품질 메타 파싱 + 태그(VERDICT·META)를 코멘트 본문에서 제거
+        const { cleaned, meta } = parseMeta(review);
+        review = cleaned.replace(/\[VERDICT:\s*(APPROVE|CHANGES)\]/ig, "").trim();
+
+        const quality = meta?.quality ?? null;
+        const risk = meta?.risk ?? "";
+        const confidence = meta?.confidence ?? "";
+        const reasons = meta?.reasons ?? [];
+        // 자동승인이어도 사람이 다시 볼 것을 권장하는 신호(diff 절단·고위험·저확신·저품질·승인+중위험)
+        const needsReview =
+          truncated || risk === "high" || confidence === "low" ||
+          (quality != null && quality <= 2) ||
+          (cfg.autoApprove && approve && risk === "medium");
 
         const verdictLine = cfg.autoApprove
           ? (approve ? `\n\n✅ **자동 승인** — 중대한 문제가 발견되지 않았습니다.`
                      : "\n\n🔸 **변경 요청** — 확인이 필요한 사항이 있어 자동 승인은 보류했습니다.")
           : "";
+        const scoreLine = quality != null
+          ? `\n\n📊 **코드 품질 ${"★".repeat(quality)}${"☆".repeat(5 - quality)} (${quality}/5)**` +
+            ` · 리스크: ${RISK_KO[risk] ?? "미상"} · 확신: ${RISK_KO[confidence] ?? "미상"}` +
+            (needsReview ? " · 🔺 사람 재검토 권장" : "")
+          : "";
         const body =
-          `🤖 **자동 코드리뷰** · 모델 \`${cfg.model}\`\n\n${review}${verdictLine}\n\n` +
+          `🤖 **자동 코드리뷰** · 모델 \`${cfg.model}\`\n\n${review}${verdictLine}${scoreLine}\n\n` +
           `---\n_커밋 \`${head.slice(0, 8)}\` 기준 자동 생성${truncated ? " · diff 일부 생략" : ""}_`;
 
         // ① 리뷰 코멘트를 먼저 게시
@@ -161,7 +205,11 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         const approval = !cfg.autoApprove ? "" : (approve ? (approveOk ? "approved" : "failed") : "changes");
 
         await prisma.codeReviewLog.create({
-          data: { repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, diffHash, status: "posted", approval, message: review.slice(0, MAX_STORED_REVIEW), commentId: String(pj.id ?? "") },
+          data: {
+            repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, diffHash,
+            status: "posted", approval, message: review.slice(0, MAX_STORED_REVIEW), commentId: String(pj.id ?? ""),
+            qualityScore: quality, riskLevel: risk, confidence, needsReview, reviewReasons: JSON.stringify(reasons),
+          },
         });
         const approveDetail = !cfg.autoApprove ? "" : (approve ? (approveOk ? " · ✅ 승인" : " · ⚠ 승인실패") : " · 변경요청");
         out.reviewed++; out.details.push(`[${repoSlug}] #${pr.id} 리뷰 게시${approveDetail}`);

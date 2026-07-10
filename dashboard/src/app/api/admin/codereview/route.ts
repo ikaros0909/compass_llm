@@ -25,6 +25,8 @@ export async function GET() {
     logs: logs.map((l) => ({
       id: String(l.id), repoSlug: l.repoSlug, prId: l.prId, prTitle: l.prTitle, prAuthor: l.prAuthor, headCommit: l.headCommit,
       status: l.status, approval: l.approval, message: l.message, at: l.createdAt,
+      qualityScore: l.qualityScore, riskLevel: l.riskLevel, confidence: l.confidence, needsReview: l.needsReview,
+      reviewReasons: (() => { try { return JSON.parse(l.reviewReasons || "[]"); } catch { return []; } })(),
     })),
   });
 }

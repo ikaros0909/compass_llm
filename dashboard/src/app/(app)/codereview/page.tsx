@@ -197,16 +197,17 @@ export default function CodeReviewPage() {
               <th className="font-medium px-3 py-3">요청자</th>
               <th className="font-medium px-3 py-3">커밋</th><th className="font-medium px-3 py-3 text-center whitespace-nowrap">상태</th>
               <th className="font-medium px-3 py-3 text-center whitespace-nowrap">승인</th>
+              <th className="font-medium px-3 py-3 whitespace-nowrap">품질</th>
               <th className="font-medium px-3 py-3 text-center whitespace-nowrap">메모</th>
             </tr>
           </thead>
           <tbody>
-            {logs.length === 0 && <tr><td colSpan={8} className="px-5 py-10 text-center text-faint"><GitPullRequest className="w-7 h-7 mx-auto mb-2 opacity-50" />아직 리뷰 이력이 없습니다.</td></tr>}
+            {logs.length === 0 && <tr><td colSpan={9} className="px-5 py-10 text-center text-faint"><GitPullRequest className="w-7 h-7 mx-auto mb-2 opacity-50" />아직 리뷰 이력이 없습니다.</td></tr>}
             {logs.map((l: any) => {
               const open = expanded.has(l.id);
               return (
               <Fragment key={l.id}>
-              <tr className={`table-row ${open ? "bg-elevated/30" : ""}`}>
+              <tr className={`table-row ${open ? "bg-elevated/30" : l.needsReview ? "bg-danger/5" : ""}`}>
                 <td className="px-5 py-3 whitespace-nowrap text-muted tabular-nums">{new Date(l.at).toLocaleString()}</td>
                 <td className="px-3 py-3 font-mono text-xs text-muted">{l.repoSlug}</td>
                 <td className="px-3 py-3">
@@ -234,6 +235,19 @@ export default function CodeReviewPage() {
                     return <span title="자동 승인 미사용" className="text-faint">—</span>;
                   })()}
                 </td>
+                <td className="px-3 py-3 whitespace-nowrap">
+                  {l.qualityScore != null ? (() => {
+                    const q: number = l.qualityScore;
+                    const color = l.riskLevel === "high" ? "text-danger" : l.riskLevel === "medium" ? "text-warn" : l.riskLevel === "low" ? "text-success" : "text-muted";
+                    const riskKo = l.riskLevel === "high" ? "높음" : l.riskLevel === "medium" ? "중간" : l.riskLevel === "low" ? "낮음" : "미상";
+                    return (
+                      <span className="inline-flex items-center gap-1.5" title={`품질 ${q}/5 · 리스크 ${riskKo}${l.confidence ? ` · 확신 ${l.confidence}` : ""}`}>
+                        <span className={`${color} tracking-tighter text-sm select-none`}>{"★".repeat(q)}<span className="text-faint">{"★".repeat(5 - q)}</span></span>
+                        {l.needsReview && <span title="재검토 권장 — 자동승인이어도 확인 필요" className="select-none">🔺</span>}
+                      </span>
+                    );
+                  })() : <span className="text-faint">—</span>}
+                </td>
                 <td className="px-3 py-3 text-center">
                   {l.message
                     ? <button onClick={() => toggleRow(l.id)} title={open ? "메모 접기" : "메모 펼치기"}
@@ -244,12 +258,22 @@ export default function CodeReviewPage() {
                     : <span className="text-faint">—</span>}
                 </td>
               </tr>
-              {open && l.message && (
+              {open && (l.message || l.reviewReasons?.length > 0) && (
                 <tr className="bg-elevated/30">
-                  <td colSpan={8} className="px-5 pb-3 pt-0">
-                    <div className="rounded-lg border border-border bg-surface/50 p-3 text-xs text-muted whitespace-pre-wrap leading-relaxed">
-                      {l.message}
-                    </div>
+                  <td colSpan={9} className="px-5 pb-3 pt-0 space-y-2">
+                    {l.reviewReasons?.length > 0 && (
+                      <div className="rounded-lg border border-border bg-surface/50 p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-faint mb-1.5">주요 지적 · 감점 사유</div>
+                        <ul className="list-disc pl-4 text-xs text-muted space-y-0.5">
+                          {l.reviewReasons.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {l.message && (
+                      <div className="rounded-lg border border-border bg-surface/50 p-3 text-xs text-muted whitespace-pre-wrap leading-relaxed">
+                        {l.message}
+                      </div>
+                    )}
                   </td>
                 </tr>
               )}
