@@ -245,16 +245,17 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         if (truncated) heuristicReasons.push("diff 가 길어 일부만 검토됨");
         if (!stats.hasTests && stats.additions > 80) heuristicReasons.push("테스트 변경 없이 로직 추가");
 
-        // 자동승인 게이트: 모델이 APPROVE 여도 위험 신호가 있으면 승인 보류(안전 기본값)
-        const gateBlock =
-          truncated || risk === "high" || confidence === "low" ||
-          (quality != null && quality <= 2) || stats.sensitive.length > 0;
-        const approve = approveVerdict && !gateBlock;
-        if (approveVerdict && !approve) heuristicReasons.unshift("모델은 APPROVE 였으나 위험 신호로 자동승인 보류");
+        // 자동승인 게이트(완화): '크리티컬'한 경우에만 보류.
+        //  - 리스크 높음 / 품질 1(심각) / diff 미완전검토(초대형)
+        //  민감파일·중간리스크·저확신·대규모 변경은 차단하지 않고 🔺 재검토 플래그로만 안내.
+        const critical = risk === "high" || quality === 1 || truncated;
+        const approve = approveVerdict && !critical;
+        if (approveVerdict && !approve) heuristicReasons.unshift("모델은 APPROVE 였으나 크리티컬 신호로 자동승인 보류");
 
-        // 자동승인이어도 사람이 다시 볼 것을 권장하는 신호
+        // 자동승인이 통과했더라도 사람이 다시 볼 것을 권장하는 신호(표시만, 차단 아님)
         const needsReview =
-          gateBlock || bigChange ||
+          critical || bigChange || confidence === "low" || stats.sensitive.length > 0 ||
+          (quality != null && quality <= 2) ||
           (cfg.autoApprove && approveVerdict && risk === "medium");
         const reasons = [...(meta?.reasons ?? []), ...heuristicReasons];
 
