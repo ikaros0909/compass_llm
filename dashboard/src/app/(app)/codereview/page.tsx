@@ -1,10 +1,10 @@
 "use client";
 import useSWR from "swr";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { fetcher } from "@/lib/fetcher";
 import PageHeader from "@/components/PageHeader";
 import {
-  GitPullRequest, Save, Play, CheckCircle2, XCircle, Loader2, Info, ChevronDown, FolderSearch,
+  GitPullRequest, Save, Play, CheckCircle2, XCircle, Loader2, Info, ChevronDown, ChevronUp, FolderSearch, User,
 } from "lucide-react";
 
 export default function CodeReviewPage() {
@@ -22,6 +22,13 @@ export default function CodeReviewPage() {
   const [loadMsg, setLoadMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [runMsg, setRunMsg] = useState("");
   const [busy, setBusy] = useState<"" | "save" | "load" | "run">("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleRow = (id: string) =>
+    setExpanded((s) => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
 
   // 최초 로드시 서버 값으로 폼 초기화 (token 은 서버에 있으면 빈칸 유지)
   useEffect(() => {
@@ -187,23 +194,32 @@ export default function CodeReviewPage() {
           <thead className="text-muted text-left text-xs uppercase tracking-wide">
             <tr className="border-b border-border">
               <th className="font-medium px-5 py-3">시각</th><th className="font-medium px-3 py-3">저장소</th><th className="font-medium px-3 py-3">PR</th>
+              <th className="font-medium px-3 py-3">요청자</th>
               <th className="font-medium px-3 py-3">커밋</th><th className="font-medium px-3 py-3 text-center whitespace-nowrap">상태</th>
               <th className="font-medium px-3 py-3 text-center whitespace-nowrap">승인</th>
-              <th className="font-medium px-5 py-3">메모</th>
+              <th className="font-medium px-3 py-3 text-center whitespace-nowrap">메모</th>
             </tr>
           </thead>
           <tbody>
-            {logs.length === 0 && <tr><td colSpan={7} className="px-5 py-10 text-center text-faint"><GitPullRequest className="w-7 h-7 mx-auto mb-2 opacity-50" />아직 리뷰 이력이 없습니다.</td></tr>}
-            {logs.map((l: any) => (
-              <tr key={l.id} className="table-row">
+            {logs.length === 0 && <tr><td colSpan={8} className="px-5 py-10 text-center text-faint"><GitPullRequest className="w-7 h-7 mx-auto mb-2 opacity-50" />아직 리뷰 이력이 없습니다.</td></tr>}
+            {logs.map((l: any) => {
+              const open = expanded.has(l.id);
+              return (
+              <Fragment key={l.id}>
+              <tr className={`table-row ${open ? "bg-elevated/30" : ""}`}>
                 <td className="px-5 py-3 whitespace-nowrap text-muted tabular-nums">{new Date(l.at).toLocaleString()}</td>
                 <td className="px-3 py-3 font-mono text-xs text-muted">{l.repoSlug}</td>
                 <td className="px-3 py-3">
-                  <div className="flex items-center gap-1.5 max-w-[20rem]">
+                  <div className="flex items-center gap-1.5 max-w-[16rem]">
                     <a href={`https://bitbucket.org/${ws}/${l.repoSlug}/pull-requests/${l.prId}`}
                       target="_blank" rel="noopener noreferrer" className="text-accent-2 hover:underline shrink-0">#{l.prId}</a>
                     <span className="text-muted truncate" title={l.prTitle}>{l.prTitle}</span>
                   </div>
+                </td>
+                <td className="px-3 py-3 text-xs text-muted">
+                  {l.prAuthor
+                    ? <span className="inline-flex items-center gap-1 max-w-[9rem] truncate" title={l.prAuthor}><User className="w-3 h-3 text-faint shrink-0" />{l.prAuthor}</span>
+                    : <span className="text-faint">—</span>}
                 </td>
                 <td className="px-3 py-3 font-mono text-xs text-faint">{l.headCommit?.slice(0, 8)}</td>
                 <td className="px-3 py-3 text-center">
@@ -218,9 +234,28 @@ export default function CodeReviewPage() {
                     return <span title="자동 승인 미사용" className="text-faint">—</span>;
                   })()}
                 </td>
-                <td className="px-5 py-3 text-muted text-xs max-w-[24rem] truncate" title={l.message}>{l.message}</td>
+                <td className="px-3 py-3 text-center">
+                  {l.message
+                    ? <button onClick={() => toggleRow(l.id)} title={open ? "메모 접기" : "메모 펼치기"}
+                        className="inline-flex items-center gap-0.5 text-muted hover:text-fg rounded px-1.5 py-0.5 hover:bg-elevated/60 transition-colors">
+                        <span className="text-base leading-none select-none">💬</span>
+                        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </button>
+                    : <span className="text-faint">—</span>}
+                </td>
               </tr>
-            ))}
+              {open && l.message && (
+                <tr className="bg-elevated/30">
+                  <td colSpan={8} className="px-5 pb-3 pt-0">
+                    <div className="rounded-lg border border-border bg-surface/50 p-3 text-xs text-muted whitespace-pre-wrap leading-relaxed">
+                      {l.message}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              );
+            })}
           </tbody>
         </table>
         </div>

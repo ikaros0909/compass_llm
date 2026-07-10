@@ -92,6 +92,7 @@ model CodeReviewLog {
   repoSlug   String   @default("")
   prId       Int
   prTitle    String   @default("")
+  prAuthor   String   @default("") // PR 요청자(display_name)
   headCommit String   @default("")
   diffHash   String   @default("") // 변경 내용(diff) 해시 — 커밋이 바뀌어도 코드가 같으면 재리뷰 안 함
   status     String   // posted | error

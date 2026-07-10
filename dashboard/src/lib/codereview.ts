@@ -93,6 +93,7 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
 
     for (const pr of prs) {
       const head: string = pr.source?.commit?.hash ?? "";
+      const author: string = pr.author?.display_name ?? pr.author?.nickname ?? "";
       // 1) 같은 커밋을 이미 리뷰했으면 즉시 스킵 (diff 조회 불필요 — 빠른 경로)
       const byCommit = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId: pr.id, headCommit: head, status: "posted" } });
       if (byCommit) { out.skipped++; continue; }
@@ -159,14 +160,14 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         const approval = !cfg.autoApprove ? "" : (approve ? (approveOk ? "approved" : "failed") : "changes");
 
         await prisma.codeReviewLog.create({
-          data: { repoSlug, prId: pr.id, prTitle: pr.title, headCommit: head, diffHash, status: "posted", approval, message: review.slice(0, 500), commentId: String(pj.id ?? "") },
+          data: { repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, diffHash, status: "posted", approval, message: review.slice(0, 500), commentId: String(pj.id ?? "") },
         });
         const approveDetail = !cfg.autoApprove ? "" : (approve ? (approveOk ? " · ✅ 승인" : " · ⚠ 승인실패") : " · 변경요청");
         out.reviewed++; out.details.push(`[${repoSlug}] #${pr.id} 리뷰 게시${approveDetail}`);
       } catch (e: any) {
         out.errors++;
         await prisma.codeReviewLog.create({
-          data: { repoSlug, prId: pr.id, prTitle: pr.title, headCommit: head, status: "error", message: (e?.message ?? "오류").slice(0, 500) },
+          data: { repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, status: "error", message: (e?.message ?? "오류").slice(0, 500) },
         }).catch(() => {});
         out.details.push(`[${repoSlug}] #${pr.id} 오류: ${e?.message ?? ""}`);
       }

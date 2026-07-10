@@ -23,7 +23,7 @@ export async function GET() {
       defaultPrompt: DEFAULT_SYSTEM_PROMPT,
     },
     logs: logs.map((l) => ({
-      id: String(l.id), repoSlug: l.repoSlug, prId: l.prId, prTitle: l.prTitle, headCommit: l.headCommit,
+      id: String(l.id), repoSlug: l.repoSlug, prId: l.prId, prTitle: l.prTitle, prAuthor: l.prAuthor, headCommit: l.headCommit,
       status: l.status, approval: l.approval, message: l.message, at: l.createdAt,
     })),
   });
