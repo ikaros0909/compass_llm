@@ -64,6 +64,31 @@ const MAX_STORED_REVIEW = 20000; // 이력에 저장할 리뷰 본문 최대 길
 
 const RISK_KO: Record<string, string> = { low: "낮음", medium: "중간", high: "높음" };
 
+// 보안·민감 영역으로 간주할 파일 경로 키워드
+const SENSITIVE_RE = /(auth|login|passwo?rd|secret|token|crypto|security|\.env|payment|billing|jwt|oauth|credential|session|sql|migration|admin)/i;
+const TEST_RE = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.[a-z]+$/i;
+
+interface DiffStats { files: number; additions: number; deletions: number; sensitive: string[]; hasTests: boolean }
+
+// LLM 과 무관하게 diff 자체에서 계산하는 객관 지표.
+function analyzeDiff(diff: string): DiffStats {
+  const paths: string[] = [];
+  let additions = 0, deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git")) {
+      const m = line.match(/ b\/(.+)$/);
+      if (m) paths.push(m[1]);
+    } else if (line.startsWith("+++") || line.startsWith("---")) {
+      continue;
+    } else if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
+  }
+  const sensitive = Array.from(new Set(
+    paths.filter((f) => SENSITIVE_RE.test(f)).map((f) => (f.match(SENSITIVE_RE) as RegExpMatchArray)[1].toLowerCase()),
+  ));
+  return { files: paths.length, additions, deletions, sensitive, hasTests: paths.some((f) => TEST_RE.test(f)) };
+}
+
 interface ReviewMeta { quality: number | null; risk: string; confidence: string; reasons: string[] }
 
 // 리뷰 끝의 [[META]]{...} JSON 을 파싱하고 본문에서 제거한다.
@@ -156,9 +181,8 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
           },
         ], { temperature: 0.2 });
 
-        // 자동 승인 판정 (명시적 APPROVE 일 때만 승인 — 안전 기본값)
-        let approve = false;
-        if (cfg.autoApprove) approve = /\[VERDICT:\s*APPROVE\]/i.test(review);
+        // 모델의 승인 의견(VERDICT) — 실제 자동승인은 아래 게이트를 함께 통과해야 함
+        const approveVerdict = cfg.autoApprove && /\[VERDICT:\s*APPROVE\]/i.test(review);
         // 품질 메타 파싱 + 태그(VERDICT·META)를 코멘트 본문에서 제거
         const { cleaned, meta } = parseMeta(review);
         review = cleaned.replace(/\[VERDICT:\s*(APPROVE|CHANGES)\]/ig, "").trim();
@@ -166,12 +190,29 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         const quality = meta?.quality ?? null;
         const risk = meta?.risk ?? "";
         const confidence = meta?.confidence ?? "";
-        const reasons = meta?.reasons ?? [];
-        // 자동승인이어도 사람이 다시 볼 것을 권장하는 신호(diff 절단·고위험·저확신·저품질·승인+중위험)
-        const needsReview =
+
+        // 객관 지표(diff 기반) — LLM 자가평가를 보완
+        const stats = analyzeDiff(fullDiff);
+        const linesChanged = stats.additions + stats.deletions;
+        const bigChange = linesChanged > 400 || stats.files > 15;
+        const heuristicReasons: string[] = [];
+        if (stats.sensitive.length) heuristicReasons.push(`민감 영역 변경: ${stats.sensitive.slice(0, 5).join(", ")}`);
+        if (bigChange) heuristicReasons.push(`변경 규모 큼: ${stats.files}개 파일 · +${stats.additions}/−${stats.deletions}`);
+        if (truncated) heuristicReasons.push("diff 가 길어 일부만 검토됨");
+        if (!stats.hasTests && stats.additions > 80) heuristicReasons.push("테스트 변경 없이 로직 추가");
+
+        // 자동승인 게이트: 모델이 APPROVE 여도 위험 신호가 있으면 승인 보류(안전 기본값)
+        const gateBlock =
           truncated || risk === "high" || confidence === "low" ||
-          (quality != null && quality <= 2) ||
-          (cfg.autoApprove && approve && risk === "medium");
+          (quality != null && quality <= 2) || stats.sensitive.length > 0;
+        const approve = approveVerdict && !gateBlock;
+        if (approveVerdict && !approve) heuristicReasons.unshift("모델은 APPROVE 였으나 위험 신호로 자동승인 보류");
+
+        // 자동승인이어도 사람이 다시 볼 것을 권장하는 신호
+        const needsReview =
+          gateBlock || bigChange ||
+          (cfg.autoApprove && approveVerdict && risk === "medium");
+        const reasons = [...(meta?.reasons ?? []), ...heuristicReasons];
 
         const verdictLine = cfg.autoApprove
           ? (approve ? `\n\n✅ **자동 승인** — 중대한 문제가 발견되지 않았습니다.`
@@ -209,6 +250,7 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
             repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, diffHash,
             status: "posted", approval, message: review.slice(0, MAX_STORED_REVIEW), commentId: String(pj.id ?? ""),
             qualityScore: quality, riskLevel: risk, confidence, needsReview, reviewReasons: JSON.stringify(reasons),
+            filesChanged: stats.files, linesChanged,
           },
         });
         const approveDetail = !cfg.autoApprove ? "" : (approve ? (approveOk ? " · ✅ 승인" : " · ⚠ 승인실패") : " · 변경요청");

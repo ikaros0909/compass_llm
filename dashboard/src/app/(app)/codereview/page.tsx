@@ -29,6 +29,8 @@ export default function CodeReviewPage() {
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
+  const [sortBy, setSortBy] = useState<"recent" | "risk">("recent");
+  const [onlyReview, setOnlyReview] = useState(false);
 
   // 최초 로드시 서버 값으로 폼 초기화 (token 은 서버에 있으면 빈칸 유지)
   useEffect(() => {
@@ -85,6 +87,13 @@ export default function CodeReviewPage() {
 
   const logs = data?.logs ?? [];
   const ws = data?.config?.workspace || form.workspace || "jinhaksa";
+  // 우려도 가중치: 재검토 플래그 > 리스크 등급 (최신순은 서버 정렬 유지)
+  const riskWeight = (l: any) =>
+    (l.needsReview ? 100 : 0) + (l.riskLevel === "high" ? 3 : l.riskLevel === "medium" ? 2 : l.riskLevel === "low" ? 1 : 0);
+  const shownLogs = [...logs]
+    .filter((l: any) => !onlyReview || l.needsReview)
+    .sort((a: any, b: any) => (sortBy === "risk" ? riskWeight(b) - riskWeight(a) : 0));
+  const reviewCount = logs.filter((l: any) => l.needsReview).length;
 
   return (
     <div>
@@ -188,7 +197,20 @@ export default function CodeReviewPage() {
 
       {/* 리뷰 이력 */}
       <div className="card !p-0 overflow-hidden mt-4">
-        <div className="px-5 py-3 text-sm font-medium border-b border-border">최근 리뷰 이력</div>
+        <div className="px-5 py-3 border-b border-border flex items-center gap-3 flex-wrap">
+          <span className="text-sm font-medium">최근 리뷰 이력</span>
+          {reviewCount > 0 && <span className="text-xs text-danger" title="재검토 권장 건수">🔺 {reviewCount}건 확인 권장</span>}
+          <div className="ml-auto flex items-center gap-3 text-xs">
+            <label className="flex items-center gap-1.5 cursor-pointer text-muted select-none">
+              <input type="checkbox" className="accent-accent w-3.5 h-3.5" checked={onlyReview} onChange={(e) => setOnlyReview(e.target.checked)} />
+              🔺 재검토 필요만
+            </label>
+            <select className="input !w-auto !py-1 !text-xs cursor-pointer" value={sortBy} onChange={(e) => setSortBy(e.target.value as "recent" | "risk")}>
+              <option value="recent">최신순</option>
+              <option value="risk">우려도순</option>
+            </select>
+          </div>
+        </div>
         <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-muted text-left text-xs uppercase tracking-wide">
@@ -203,7 +225,8 @@ export default function CodeReviewPage() {
           </thead>
           <tbody>
             {logs.length === 0 && <tr><td colSpan={9} className="px-5 py-10 text-center text-faint"><GitPullRequest className="w-7 h-7 mx-auto mb-2 opacity-50" />아직 리뷰 이력이 없습니다.</td></tr>}
-            {logs.map((l: any) => {
+            {logs.length > 0 && shownLogs.length === 0 && <tr><td colSpan={9} className="px-5 py-8 text-center text-faint">조건에 맞는 항목이 없습니다.</td></tr>}
+            {shownLogs.map((l: any) => {
               const open = expanded.has(l.id);
               return (
               <Fragment key={l.id}>
@@ -261,6 +284,9 @@ export default function CodeReviewPage() {
               {open && (l.message || l.reviewReasons?.length > 0) && (
                 <tr className="bg-elevated/30">
                   <td colSpan={9} className="px-5 pb-3 pt-0 space-y-2">
+                    {(l.filesChanged != null || l.linesChanged != null) && (
+                      <div className="text-[11px] text-faint pt-1">변경 규모: {l.filesChanged ?? "?"}개 파일 · {l.linesChanged ?? "?"}줄</div>
+                    )}
                     {l.reviewReasons?.length > 0 && (
                       <div className="rounded-lg border border-border bg-surface/50 p-3">
                         <div className="text-[11px] uppercase tracking-wide text-faint mb-1.5">주요 지적 · 감점 사유</div>
