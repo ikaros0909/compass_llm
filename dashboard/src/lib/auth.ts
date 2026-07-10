@@ -53,7 +53,11 @@ export async function getSession(): Promise<Session | null> {
       select: { email: true, role: true, sessionEpoch: true },
     });
     if (!user) return null;
-    if ((payload.epoch as number | undefined) !== user.sessionEpoch) return null;
+    // epoch 클레임이 없는 구(舊)토큰(세션무효화 기능 배포 전 로그인)은 0 으로 간주.
+    // → 아직 무효화(로그아웃·비번변경)되지 않은 유효 세션이면 조회·저장이 일관되게 동작.
+    //   실제 무효화 시엔 DB epoch 가 1 이상이 되어 계속 차단됨.
+    const tokenEpoch = typeof payload.epoch === "number" ? payload.epoch : 0;
+    if (tokenEpoch !== user.sessionEpoch) return null;
     return { sub, email: user.email, role: user.role };
   } catch {
     return null;
