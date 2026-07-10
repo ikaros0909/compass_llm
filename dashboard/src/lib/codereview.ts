@@ -59,8 +59,27 @@ export async function listRepos(cfg: { workspace: string; authUsername: string; 
   }
 }
 
-const MAX_DIFF = 16000; // 컨텍스트 보호용 diff 절단 길이
+const MAX_DIFF = 16000; // 한 번의 모델 호출에 넣는 diff 최대 길이(조각 크기)
+const MAX_CHUNKS = 8; // 대용량 diff 분할 리뷰 시 최대 조각 수 (8 × 16000 ≈ 128KB 커버)
 const MAX_STORED_REVIEW = 20000; // 이력에 저장할 리뷰 본문 최대 길이(펼쳐보기용 — 사실상 전문)
+
+// 대용량 diff 를 파일(diff --git) 경계에서 여러 조각으로 분할.
+// covered=false 이면 조각 수 상한·단일 파일 크기 때문에 일부가 빠졌음을 의미(=완전 검토 아님).
+function splitDiffIntoChunks(diff: string, maxLen: number, maxChunks: number): { chunks: string[]; covered: boolean } {
+  const parts = diff.split(/(?=^diff --git )/m).filter((s) => s.trim());
+  const chunks: string[] = [];
+  let cur = "";
+  let partial = false;
+  for (const p of parts.length ? parts : [diff]) {
+    let piece = p;
+    if (piece.length > maxLen) { piece = piece.slice(0, maxLen) + "\n... (파일이 커서 일부 생략)"; partial = true; }
+    if (cur && cur.length + piece.length > maxLen) { chunks.push(cur); cur = ""; }
+    cur += piece;
+  }
+  if (cur) chunks.push(cur);
+  const dropped = chunks.length > maxChunks;
+  return { chunks: dropped ? chunks.slice(0, maxChunks) : chunks, covered: !partial && !dropped };
+}
 
 const RISK_KO: Record<string, string> = { low: "낮음", medium: "중간", high: "높음" };
 
@@ -155,10 +174,6 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         // 2) 커밋 해시는 달라졌지만 실제 변경 내용(diff)이 동일하면 스킵 (리베이스·머지·CI 봇 커밋 등으로 코드는 그대로)
         const byDiff = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId: pr.id, diffHash, status: "posted" } });
         if (byDiff) { out.skipped++; out.details.push(`[${repoSlug}] #${pr.id} 코드 변경 없음 — 재리뷰 생략(커밋만 변경)`); continue; }
-        let diff = fullDiff;
-        const truncated = diff.length > MAX_DIFF;
-        if (truncated) diff = diff.slice(0, MAX_DIFF) + "\n... (diff 가 길어 이후 생략됨)";
-
         let sys = `${cfg.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT}\n\n(참고: 이 리뷰에 사용된 모델명은 정확히 "${cfg.model}" 입니다. 모델명을 표기할 때 이 값을 그대로 사용하세요.)`;
         if (cfg.autoApprove) {
           sys += `\n\n리뷰 본문 아래에 다음 중 하나만 정확히 출력하세요: ` +
@@ -169,17 +184,46 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         sys += `\n\n그리고 응답의 가장 마지막 줄에 아래 형식의 메타데이터를 반드시 한 줄로 출력하세요(설명 없이 JSON 만):\n` +
           `[[META]]{"quality":<1~5 정수>,"risk":"low|medium|high","confidence":"low|medium|high","reasons":["짧은 사유"]}\n` +
           `- quality(코드 품질): 5=매우 우수(문제 거의 없음) · 4=양호(사소한 개선) · 3=보통(몇 가지 수정 권장) · 2=우려(중요한 문제) · 1=심각(버그·보안 등 중대)\n` +
-          `- risk=버그·보안 등 실제 문제 가능성, confidence=이 판단의 확신도(diff 가 잘렸거나 컨텍스트가 부족하면 낮게), reasons=감점·우려 근거를 3개 이내로 짧게.`;
-        let review = await chatComplete(cfg.model, [
-          { role: "system", content: sys },
-          {
-            role: "user",
-            content:
-              `저장소: ${repoSlug}\nPull Request #${pr.id}: ${pr.title}\n` +
-              `대상 브랜치: ${pr.destination?.branch?.name ?? "?"} ← ${pr.source?.branch?.name ?? "?"}\n\n` +
-              `[변경사항 diff]\n${diff}`,
-          },
-        ], { temperature: 0.2 });
+          `- risk=버그·보안 등 실제 문제 가능성, confidence=이 판단의 확신도(컨텍스트가 부족하면 낮게), reasons=감점·우려 근거를 3개 이내로 짧게.`;
+
+        const prHead =
+          `저장소: ${repoSlug}\nPull Request #${pr.id}: ${pr.title}\n` +
+          `대상 브랜치: ${pr.destination?.branch?.name ?? "?"} ← ${pr.source?.branch?.name ?? "?"}`;
+
+        let review: string;
+        let truncated: boolean;
+        if (fullDiff.length <= MAX_DIFF) {
+          // 단일 리뷰
+          truncated = false;
+          review = await chatComplete(cfg.model, [
+            { role: "system", content: sys },
+            { role: "user", content: `${prHead}\n\n[변경사항 diff]\n${fullDiff}` },
+          ], { temperature: 0.2 });
+        } else {
+          // 대용량 diff: 파일 경계로 분할해 각 부분을 관찰(map) → 하나로 종합(reduce)
+          const { chunks, covered } = splitDiffIntoChunks(fullDiff, MAX_DIFF, MAX_CHUNKS);
+          truncated = !covered; // 조각으로 전부 커버되면 '절단' 아님 → 자동승인 가능
+          const mapSys =
+            "당신은 코드 리뷰어입니다. 아래는 큰 Pull Request 의 일부 diff 입니다. " +
+            "이 부분에서 발견한 버그·보안·성능·가독성·유지보수성 문제와 잘한 점을 파일/함수를 언급하며 간결히 항목으로 정리하세요. " +
+            "이것은 부분 검토이므로 최종 총평·승인 판정·메타데이터(VERDICT·[[META]])는 절대 출력하지 마세요.";
+          const observations: string[] = [];
+          for (let i = 0; i < chunks.length; i++) {
+            const obs = await chatComplete(cfg.model, [
+              { role: "system", content: mapSys },
+              { role: "user", content: `${prHead}\n(부분 ${i + 1}/${chunks.length})\n\n[변경사항 diff 일부]\n${chunks[i]}` },
+            ], { temperature: 0.2 });
+            observations.push(`## 부분 ${i + 1}/${chunks.length} 관찰\n${obs.trim()}`);
+          }
+          review = await chatComplete(cfg.model, [
+            { role: "system", content: sys },
+            { role: "user", content:
+              `${prHead}\n\n` +
+              `아래는 큰 변경(diff)을 ${chunks.length}개 부분으로 나눠 각 부분을 검토한 관찰 결과입니다` +
+              `${covered ? "(전체 변경을 빠짐없이 검토했습니다)" : "(변경이 매우 커서 일부는 검토에서 제외되었습니다 — 확신도를 낮게 잡으세요)"}. ` +
+              `이 관찰들을 종합해 하나의 최종 한국어 리뷰를 작성하세요.\n\n${observations.join("\n\n")}` },
+          ], { temperature: 0.2 });
+        }
 
         // 모델의 승인 의견(VERDICT) — 실제 자동승인은 아래 게이트를 함께 통과해야 함
         const approveVerdict = cfg.autoApprove && /\[VERDICT:\s*APPROVE\]/i.test(review);
