@@ -64,6 +64,8 @@ const MAX_CHUNKS = 10; // 대용량 diff 분할 리뷰 시 최대 조각 수 (10
 // 코드리뷰 호출의 컨텍스트 창을 명시(버전 무관 결정적 동작 + 잘림 방지).
 // RTX 3090(24GB)+gemma4:31b 기준 16384 는 100% GPU 로드가 유지되는 안전값(실측).
 const REVIEW_NUM_CTX = 16384;
+// diff + 컨텍스트 보강 파일내용의 합계 문자 예산(num_ctx 안에 출력 여유까지 두는 상한)
+const REVIEW_CTX_CHARS = 40000;
 const MAX_STORED_REVIEW = 20000; // 이력에 저장할 리뷰 본문 최대 길이(펼쳐보기용 — 사실상 전문)
 
 // 대용량 diff 를 파일(diff --git) 경계에서 여러 조각으로 분할.
@@ -90,7 +92,7 @@ const RISK_KO: Record<string, string> = { low: "낮음", medium: "중간", high:
 const SENSITIVE_RE = /(auth|login|passwo?rd|secret|token|crypto|security|\.env|payment|billing|jwt|oauth|credential|session|sql|migration|admin)/i;
 const TEST_RE = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.[a-z]+$/i;
 
-interface DiffStats { files: number; additions: number; deletions: number; sensitive: string[]; hasTests: boolean }
+interface DiffStats { files: number; paths: string[]; additions: number; deletions: number; sensitive: string[]; hasTests: boolean }
 
 // LLM 과 무관하게 diff 자체에서 계산하는 객관 지표.
 function analyzeDiff(diff: string): DiffStats {
@@ -108,7 +110,54 @@ function analyzeDiff(diff: string): DiffStats {
   const sensitive = Array.from(new Set(
     paths.filter((f) => SENSITIVE_RE.test(f)).map((f) => (f.match(SENSITIVE_RE) as RegExpMatchArray)[1].toLowerCase()),
   ));
-  return { files: paths.length, additions, deletions, sensitive, hasTests: paths.some((f) => TEST_RE.test(f)) };
+  return { files: paths.length, paths, additions, deletions, sensitive, hasTests: paths.some((f) => TEST_RE.test(f)) };
+}
+
+// 오탐(false positive) 최소화를 위한 정밀도 규칙 — 리뷰·검증 프롬프트에 공통 적용.
+const PRECISION_RULES =
+  "\n\n[정밀도 규칙 — 오탐 최소화]\n" +
+  "- 확신이 높지 않은 지적은 아예 생략하세요(추측성 지적 금지).\n" +
+  "- 각 지적에는 반드시 근거를 제시하세요: 해당 '파일:라인' + '이런 입력/상황이면 이런 문제가 발생한다'는 구체적 시나리오. 구체적 트리거를 댈 수 없으면 적지 마세요.\n" +
+  "- diff 에 보이지 않는 코드의 부재·동작을 단정하지 마세요(검증·에러처리·import·널체크 등이 diff 밖 다른 곳에 이미 있을 수 있습니다).\n" +
+  "- 단순 스타일·취향·가정적 엣지케이스는 지적하지 말고, 실제 버그·보안·명백한 결함에만 집중하세요.";
+
+// VERDICT(자동승인) + [[META]] 스키마 — 리뷰·검증 프롬프트 공통.
+function metaTail(autoApprove: boolean): string {
+  let t = "";
+  if (autoApprove) {
+    t += `\n\n리뷰 본문 아래에 다음 중 하나만 정확히 출력하세요: ` +
+      `"[VERDICT: APPROVE]" (버그·보안·설계상 중대한 문제가 없어 그대로 머지 가능) 또는 ` +
+      `"[VERDICT: CHANGES]" (수정이 필요함). 조금이라도 애매하거나 확신이 없으면 반드시 CHANGES 로 하세요.`;
+  }
+  t += `\n\n그리고 응답의 가장 마지막 줄에 아래 형식의 메타데이터를 반드시 한 줄로 출력하세요(설명 없이 JSON 만):\n` +
+    `[[META]]{"quality":<1~5 정수>,"risk":"low|medium|high","confidence":"low|medium|high","reasons":["이번 변경에 대한 짧은 사유"],"advisories":["이번 PR 과 무관한 기존 코드 참고 권고"]}\n` +
+    `- quality(이번 변경의 코드 품질): 5=매우 우수 · 4=양호 · 3=보통 · 2=우려(중요한 문제) · 1=심각(버그·보안 등 중대)\n` +
+    `- risk=이번 변경이 유발하는 버그·보안 등 실제 문제 가능성, confidence=이 판단의 확신도\n` +
+    `- reasons=이번 '변경'의 확실한 지적만. advisories=이번 PR 과 무관한 기존 코드 권고(승인·품질 미반영, 없으면 빈 배열).`;
+  return t;
+}
+
+// 컨텍스트 보강: 변경된 파일의 전체 내용을 일부 가져와 '검증 누락' 류 오탐을 줄인다.
+async function fetchFileContext(cfg: Auth, repoSlug: string, commit: string, paths: string[], budget: number): Promise<string> {
+  const MAX_PER_FILE = 6000;
+  let used = 0;
+  const blocks: string[] = [];
+  for (const p of paths.slice(0, 6)) {
+    if (used >= budget || !commit) break;
+    try {
+      const r = await bbRepo(cfg, repoSlug, `/src/${commit}/${p}`);
+      if (!r.ok) continue;
+      let content = await r.text();
+      if (content.length > MAX_PER_FILE) content = content.slice(0, MAX_PER_FILE) + "\n... (파일 일부 생략)";
+      const block = `\n----- 파일 전체: ${p} -----\n${content}`;
+      if (used + block.length > budget) break;
+      blocks.push(block);
+      used += block.length;
+    } catch { /* 파일 조회 실패는 무시 */ }
+  }
+  return blocks.length
+    ? `\n\n[참고 — 변경된 파일의 현재 전체 내용(주변 코드 파악용, 이 중 diff 부분만 이번 변경입니다)]\n${blocks.join("\n")}`
+    : "";
 }
 
 interface ReviewMeta { quality: number | null; risk: string; confidence: string; reasons: string[]; advisories: string[] }
@@ -177,35 +226,31 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         // 2) 커밋 해시는 달라졌지만 실제 변경 내용(diff)이 동일하면 스킵 (리베이스·머지·CI 봇 커밋 등으로 코드는 그대로)
         const byDiff = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId: pr.id, diffHash, status: "posted" } });
         if (byDiff) { out.skipped++; out.details.push(`[${repoSlug}] #${pr.id} 코드 변경 없음 — 재리뷰 생략(커밋만 변경)`); continue; }
-        let sys = `${cfg.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT}\n\n(참고: 이 리뷰에 사용된 모델명은 정확히 "${cfg.model}" 입니다. 모델명을 표기할 때 이 값을 그대로 사용하세요.)`;
-        if (cfg.autoApprove) {
-          sys += `\n\n리뷰 본문 아래에 다음 중 하나만 정확히 출력하세요: ` +
-            `"[VERDICT: APPROVE]" (버그·보안·설계상 중대한 문제가 없어 그대로 머지 가능) 또는 ` +
-            `"[VERDICT: CHANGES]" (수정이 필요함). 조금이라도 애매하거나 확신이 없으면 반드시 CHANGES 로 하세요.`;
-        }
-        // ★ 판정 범위: '이번 PR 이 변경한 부분'만. 기존 코드 문제는 승인/품질에서 제외.
-        sys += `\n\n[매우 중요 — 판정 범위]\n` +
+        // 판정 범위(변경분만) — 리뷰·검증 공통
+        const SCOPE_RULES =
+          `\n\n[매우 중요 — 판정 범위]\n` +
           `- diff 에서 '+'(추가)되거나 수정된 라인이 '이번 PR 의 변경'입니다. 변경되지 않은 컨텍스트 라인이나 기존 파일에 원래 있던 문제는, 이번 PR 이 새로 도입/악화시킨 것이 아니라면 승인(VERDICT)·quality·risk·confidence·reasons 에 절대 반영하지 마세요.\n` +
-          `- 이번 PR 과 무관한 기존 코드의 문제(OWASP 등)는 지적하되 반드시 advisories(별도 참고 권고)로만 분류하고, 이 때문에 CHANGES 로 판정하거나 quality 를 낮추지 마세요. 기존 문제로 승인을 막지 않습니다.`;
-        // 품질 척도(5점) — 응답의 가장 마지막 줄에 기계 판독용 JSON 을 강제.
-        sys += `\n\n그리고 응답의 가장 마지막 줄에 아래 형식의 메타데이터를 반드시 한 줄로 출력하세요(설명 없이 JSON 만):\n` +
-          `[[META]]{"quality":<1~5 정수>,"risk":"low|medium|high","confidence":"low|medium|high","reasons":["이번 변경에 대한 짧은 사유"],"advisories":["이번 PR 과 무관한 기존 코드 참고 권고"]}\n` +
-          `- quality(이번 변경의 코드 품질): 5=매우 우수(문제 거의 없음) · 4=양호(사소한 개선) · 3=보통(몇 가지 수정 권장) · 2=우려(중요한 문제) · 1=심각(버그·보안 등 중대)\n` +
-          `- risk=이번 변경이 유발하는 버그·보안 등 실제 문제 가능성, confidence=이 판단의 확신도(컨텍스트가 부족하면 낮게)\n` +
-          `- reasons=이번 '변경'에 대한 감점·우려 근거만 3개 이내로. advisories=이번 PR 과 무관한 기존 코드의 개선 권고(승인·품질에 미반영, 없으면 빈 배열).`;
+          `- 이번 PR 과 무관한 기존 코드의 문제(OWASP 등)는 advisories(별도 참고 권고)로만 분류하고, 이 때문에 CHANGES 로 판정하거나 quality 를 낮추지 마세요.`;
+        // 1차 리뷰 시스템 프롬프트 = 사용자설정 + 판정범위 + 정밀도 + (VERDICT·META)
+        const sys =
+          `${cfg.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT}\n\n(참고: 이 리뷰에 사용된 모델명은 정확히 "${cfg.model}" 입니다. 모델명을 표기할 때 이 값을 그대로 사용하세요.)` +
+          SCOPE_RULES + PRECISION_RULES + metaTail(cfg.autoApprove);
 
         const prHead =
           `저장소: ${repoSlug}\nPull Request #${pr.id}: ${pr.title}\n` +
           `대상 브랜치: ${pr.destination?.branch?.name ?? "?"} ← ${pr.source?.branch?.name ?? "?"}`;
 
+        const stats = analyzeDiff(fullDiff);
         let review: string;
         let truncated: boolean;
         if (fullDiff.length <= MAX_DIFF) {
-          // 단일 리뷰
+          // 단일 리뷰 (+ 컨텍스트 보강: 변경 파일 전체 내용 일부 — '검증 누락' 오탐 감소)
           truncated = false;
+          const ctxBudget = Math.max(0, REVIEW_CTX_CHARS - fullDiff.length);
+          const fileCtx = ctxBudget > 2000 ? await fetchFileContext(cfg, repoSlug, head, stats.paths, Math.min(ctxBudget, 18000)) : "";
           review = await chatComplete(cfg.model, [
             { role: "system", content: sys },
-            { role: "user", content: `${prHead}\n\n[변경사항 diff]\n${fullDiff}` },
+            { role: "user", content: `${prHead}\n\n[변경사항 diff]\n${fullDiff}${fileCtx}` },
           ], { temperature: 0.2, num_ctx: REVIEW_NUM_CTX });
         } else {
           // 대용량 diff: 파일 경계로 분할해 각 부분을 관찰(map) → 하나로 종합(reduce)
@@ -215,7 +260,7 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
             "당신은 코드 리뷰어입니다. 아래는 큰 Pull Request 의 일부 diff 입니다. " +
             "이 부분에서 발견한 버그·보안·성능·가독성·유지보수성 문제와 잘한 점을 파일/함수를 언급하며 간결히 항목으로 정리하세요. " +
             "각 항목이 '이번 변경(+/수정 라인)'에 대한 것인지, '변경되지 않은 기존(컨텍스트) 코드'에 대한 것인지 반드시 구분해 표기하세요. " +
-            "이것은 부분 검토이므로 최종 총평·승인 판정·메타데이터(VERDICT·[[META]])는 절대 출력하지 마세요.";
+            "추측성 지적은 적지 말고 확실한 것만 쓰세요. 이것은 부분 검토이므로 최종 총평·승인 판정·메타데이터(VERDICT·[[META]])는 절대 출력하지 마세요.";
           const observations: string[] = [];
           for (let i = 0; i < chunks.length; i++) {
             const obs = await chatComplete(cfg.model, [
@@ -234,6 +279,21 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
           ], { temperature: 0.2, num_ctx: REVIEW_NUM_CTX });
         }
 
+        // ── 자기검증 2단계: 1차 리뷰의 각 지적을 diff 근거로 재검토해 오탐 제거 + 심각도 게이팅 ──
+        const draft = parseMeta(review).cleaned.replace(/\[VERDICT:\s*(APPROVE|CHANGES)\]/ig, "").trim();
+        const verifySys =
+          "당신은 엄격한 코드 리뷰 '검증자'입니다. 아래 [1차 리뷰]의 각 지적을 [실제 변경 diff]만 근거로 재검토해 최종 리뷰를 다시 작성하세요.\n" +
+          "- diff 로 확실히 입증되지 않는 지적, diff 밖 코드의 부재·동작을 가정한 지적, 이미 처리된 것으로 보이는 지적은 삭제하세요(관대하게 남기지 말고 의심되면 제거).\n" +
+          "- 확실한 버그·보안·명백한 결함만 '## 주요 지적'에 남기고, 경미하거나 확신이 낮은 항목은 '## 참고(낮은 확신)' 로 분리하세요. 남길 게 없으면 '중대한 문제 없음'으로 간결히 쓰세요.\n" +
+          "- 잘한 점 한두 줄과 한 줄 총평을 포함하세요." +
+          SCOPE_RULES + PRECISION_RULES + metaTail(cfg.autoApprove);
+        const verified = await chatComplete(cfg.model, [
+          { role: "system", content: verifySys },
+          { role: "user", content: `[1차 리뷰]\n${draft}\n\n[실제 변경 diff]\n${fullDiff.slice(0, MAX_DIFF)}` },
+        ], { temperature: 0.1, num_ctx: REVIEW_NUM_CTX });
+        // 검증 결과가 비정상적으로 짧으면(실패) 1차 리뷰를 그대로 사용
+        review = verified.trim().length > 40 ? verified : review;
+
         // 모델의 승인 의견(VERDICT) — 실제 자동승인은 아래 게이트를 함께 통과해야 함
         const approveVerdict = cfg.autoApprove && /\[VERDICT:\s*APPROVE\]/i.test(review);
         // 품질 메타 파싱 + 태그(VERDICT·META)를 코멘트 본문에서 제거
@@ -246,8 +306,7 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
         // 이번 PR 과 무관한 기존 코드 권고 — 승인·품질·재검토 판정에 반영하지 않음(참고용).
         const advisories = meta?.advisories ?? [];
 
-        // 객관 지표(diff 기반) — LLM 자가평가를 보완
-        const stats = analyzeDiff(fullDiff);
+        // 객관 지표(diff 기반) — LLM 자가평가를 보완 (stats 는 위에서 계산)
         const linesChanged = stats.additions + stats.deletions;
         const bigChange = linesChanged > 400 || stats.files > 15;
         const heuristicReasons: string[] = [];
