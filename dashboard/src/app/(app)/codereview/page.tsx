@@ -241,7 +241,7 @@ export default function CodeReviewPage() {
           </div>
         </div>
         <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[56rem]">
           <thead className="text-muted text-left text-xs uppercase tracking-wide">
             <tr className="border-b border-border">
               <th className="font-medium px-5 py-3">시각</th><th className="font-medium px-3 py-3">저장소</th><th className="font-medium px-3 py-3">PR</th>

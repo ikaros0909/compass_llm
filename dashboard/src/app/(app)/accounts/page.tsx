@@ -83,7 +83,8 @@ export default function AccountsPage() {
 
           {/* 계정 목록 */}
           <div className="card !p-0 overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[36rem]">
               <thead className="text-muted text-left text-xs uppercase tracking-wide">
                 <tr className="border-b border-border">
                   <th className="font-medium px-5 py-3">이메일</th>
@@ -122,6 +123,7 @@ export default function AccountsPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </>
       )}

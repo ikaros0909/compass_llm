@@ -85,7 +85,8 @@ export default function ApiKeysPage() {
       )}
 
       <div className="card !p-0 overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[40rem]">
           <thead className="text-muted text-left text-xs uppercase tracking-wide">
             <tr className="border-b border-border">
               <th className="font-medium px-5 py-3">이름</th>
@@ -121,6 +122,7 @@ export default function ApiKeysPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

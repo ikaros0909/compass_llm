@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Boxes, KeyRound, Library, ScrollText, MessagesSquare,
-  Users, LogOut, Compass, PanelLeftClose, PanelLeftOpen, GitPullRequest,
+  Users, LogOut, Compass, PanelLeftClose, PanelLeftOpen, GitPullRequest, Menu, X,
 } from "lucide-react";
 
 const NAV = [
@@ -23,11 +23,16 @@ const LS_KEY = "compass.sidebar.collapsed";
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(false); // 데스크톱 접기
+  const [mobileOpen, setMobileOpen] = useState(false); // 모바일 드로어
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(LS_KEY) === "1");
   }, []);
+  // 경로 이동 시 모바일 드로어 자동 닫기
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   function toggle() {
     setCollapsed((c) => {
@@ -37,66 +42,99 @@ export default function Sidebar() {
     });
   }
 
+  async function logout() {
+    await fetch("/api/admin/auth/logout", { method: "POST" });
+    router.push("/login");
+  }
+
+  // 라벨 숨김: 데스크톱 접힘일 때만(lg). 모바일 드로어에선 항상 표시.
+  const labelHidden = collapsed ? "lg:hidden" : "";
+
   return (
-    <aside
-      className={`${collapsed ? "w-[68px]" : "w-60"} shrink-0 border-r border-border bg-surface/60 backdrop-blur-sm flex flex-col transition-[width] duration-200 ease-out`}
-    >
-      {/* 헤더: 로고 + 토글 */}
-      <div className={`flex items-center h-16 border-b border-border ${collapsed ? "justify-center px-2" : "gap-2.5 px-5"}`}>
-        <div className="grid place-items-center w-9 h-9 rounded-xl bg-accent/15 ring-1 ring-accent/30 shrink-0">
-          <Compass className="w-5 h-5 text-accent-2" />
+    <>
+      {/* 모바일 상단바 (lg 미만) */}
+      <header className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 flex items-center gap-3 px-4 border-b border-border bg-surface/90 backdrop-blur-sm">
+        <button onClick={() => setMobileOpen(true)} className="text-muted hover:text-white p-1 -ml-1" aria-label="메뉴 열기">
+          <Menu className="w-6 h-6" />
+        </button>
+        <div className="flex items-center gap-2">
+          <div className="grid place-items-center w-8 h-8 rounded-lg bg-accent/15 ring-1 ring-accent/30">
+            <Compass className="w-[18px] h-[18px] text-accent-2" />
+          </div>
+          <span className="font-semibold">Compass LLM</span>
         </div>
-        {!collapsed && (
-          <div className="flex-1 min-w-0">
+      </header>
+
+      {/* 모바일 백드롭 */}
+      {mobileOpen && (
+        <div className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setMobileOpen(false)} />
+      )}
+
+      {/* 사이드바: 데스크톱은 in-flow, 모바일은 좌측 드로어 */}
+      <aside
+        className={[
+          "fixed lg:static inset-y-0 left-0 z-50 shrink-0 flex flex-col w-64",
+          "border-r border-border bg-surface/95 lg:bg-surface/60 backdrop-blur-sm",
+          "transition-transform lg:transition-[width] duration-200 ease-out",
+          collapsed ? "lg:w-[68px]" : "lg:w-60",
+          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+        ].join(" ")}
+      >
+        {/* 헤더: 로고 + 접기/닫기 */}
+        <div className={`flex items-center h-16 border-b border-border gap-2.5 px-5 ${collapsed ? "lg:justify-center lg:px-2" : ""}`}>
+          <div className="grid place-items-center w-9 h-9 rounded-xl bg-accent/15 ring-1 ring-accent/30 shrink-0">
+            <Compass className="w-5 h-5 text-accent-2" />
+          </div>
+          <div className={`flex-1 min-w-0 ${labelHidden}`}>
             <div className="font-semibold leading-tight truncate">Compass LLM</div>
             <div className="text-[11px] text-faint leading-tight">운영 콘솔</div>
           </div>
-        )}
-        {!collapsed && (
-          <button onClick={toggle} className="text-faint hover:text-gray-200 transition shrink-0" title="메뉴 접기">
+          {/* 데스크톱 접기 버튼 (펼쳐진 상태에서만) */}
+          <button onClick={toggle} className={`hidden text-faint hover:text-gray-200 transition shrink-0 ${collapsed ? "" : "lg:block"}`} title="메뉴 접기">
             <PanelLeftClose className="w-5 h-5" />
           </button>
+          {/* 모바일 닫기 버튼 */}
+          <button onClick={() => setMobileOpen(false)} className="lg:hidden text-faint hover:text-gray-200 shrink-0" aria-label="메뉴 닫기">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* 데스크톱 접힘 상태 펼치기 버튼 */}
+        {collapsed && (
+          <button onClick={toggle} className="hidden lg:flex nav-link justify-center mx-2 mt-2" title="메뉴 펼치기">
+            <PanelLeftOpen className="w-[18px] h-[18px]" />
+          </button>
         )}
-      </div>
 
-      {/* 접힘 상태일 때 펼치기 버튼 */}
-      {collapsed && (
-        <button onClick={toggle} className="nav-link justify-center mx-2 mt-2" title="메뉴 펼치기">
-          <PanelLeftOpen className="w-[18px] h-[18px]" />
-        </button>
-      )}
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          {NAV.map((n) => {
+            const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
+            const Icon = n.icon;
+            return (
+              <Link
+                key={n.href}
+                href={n.href}
+                title={collapsed ? n.label : undefined}
+                className={`nav-link ${active ? "active" : ""} ${collapsed ? "lg:justify-center lg:!px-0" : ""}`}
+              >
+                <Icon className="w-[18px] h-[18px] shrink-0" />
+                <span className={labelHidden}>{n.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
 
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {NAV.map((n) => {
-          const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
-          const Icon = n.icon;
-          return (
-            <Link
-              key={n.href}
-              href={n.href}
-              title={collapsed ? n.label : undefined}
-              className={`nav-link ${active ? "active" : ""} ${collapsed ? "justify-center !px-0" : ""}`}
-            >
-              <Icon className="w-[18px] h-[18px] shrink-0" />
-              {!collapsed && n.label}
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div className="p-3 border-t border-border">
-        <button
-          className={`nav-link w-full ${collapsed ? "justify-center !px-0" : ""}`}
-          title={collapsed ? "로그아웃" : undefined}
-          onClick={async () => {
-            await fetch("/api/admin/auth/logout", { method: "POST" });
-            router.push("/login");
-          }}
-        >
-          <LogOut className="w-[18px] h-[18px] shrink-0" />
-          {!collapsed && "로그아웃"}
-        </button>
-      </div>
-    </aside>
+        <div className="p-3 border-t border-border">
+          <button
+            className={`nav-link w-full ${collapsed ? "lg:justify-center lg:!px-0" : ""}`}
+            title={collapsed ? "로그아웃" : undefined}
+            onClick={logout}
+          >
+            <LogOut className="w-[18px] h-[18px] shrink-0" />
+            <span className={labelHidden}>로그아웃</span>
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

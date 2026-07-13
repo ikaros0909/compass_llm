@@ -223,8 +223,8 @@ export default function PlaygroundPage() {
 
   return (
     <div className="flex gap-4 h-full min-h-0">
-      {/* ── 대화 목록 사이드바 ── */}
-      <div className="w-56 shrink-0 flex flex-col card !p-2">
+      {/* ── 대화 목록 사이드바 (모바일에선 숨김) ── */}
+      <div className="hidden md:flex w-56 shrink-0 flex-col card !p-2">
         <button className="btn w-full mb-2" onClick={newChat} disabled={streaming}>
           <Plus className="w-4 h-4" /> 새 대화
         </button>
@@ -254,20 +254,23 @@ export default function PlaygroundPage() {
 
       {/* ── 채팅 영역 ── */}
       <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-        <div className="flex items-center justify-between gap-4 mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-4">
           <div>
             <h1 className="text-xl font-semibold flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-accent-2" /> 플레이그라운드
             </h1>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               <p className="text-sm text-muted">설치된 모델을 선택해 바로 대화해 보세요.</p>
               <BackendBadge backend={activeBackend?.backend} gpuPct={activeBackend?.gpuPct} />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+            <button className="btn-ghost md:hidden shrink-0" onClick={newChat} disabled={streaming} title="새 대화">
+              <Plus className="w-4 h-4" />
+            </button>
+            <div className="relative flex-1 sm:flex-none min-w-0">
               <select
-                className="input appearance-none pr-9 min-w-[15rem] cursor-pointer"
+                className="input appearance-none pr-9 w-full sm:min-w-[15rem] cursor-pointer"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               >
@@ -280,7 +283,7 @@ export default function PlaygroundPage() {
               </select>
               <ChevronDown className="w-4 h-4 text-faint absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
-            <button className="btn-ghost" onClick={() => setShowSettings((s) => !s)}>
+            <button className="btn-ghost shrink-0" onClick={() => setShowSettings((s) => !s)}>
               <Settings2 className="w-4 h-4" /> 설정
             </button>
           </div>
