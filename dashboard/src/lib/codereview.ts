@@ -59,8 +59,11 @@ export async function listRepos(cfg: { workspace: string; authUsername: string; 
   }
 }
 
-const MAX_DIFF = 16000; // 한 번의 모델 호출에 넣는 diff 최대 길이(조각 크기)
-const MAX_CHUNKS = 8; // 대용량 diff 분할 리뷰 시 최대 조각 수 (8 × 16000 ≈ 128KB 커버)
+const MAX_DIFF = 32000; // 한 번의 모델 호출에 넣는 diff 최대 길이(조각 크기, 문자) ≈ 1만 토큰
+const MAX_CHUNKS = 10; // 대용량 diff 분할 리뷰 시 최대 조각 수 (10 × 32000 ≈ 320KB 커버)
+// 코드리뷰 호출의 컨텍스트 창을 명시(버전 무관 결정적 동작 + 잘림 방지).
+// RTX 3090(24GB)+gemma4:31b 기준 16384 는 100% GPU 로드가 유지되는 안전값(실측).
+const REVIEW_NUM_CTX = 16384;
 const MAX_STORED_REVIEW = 20000; // 이력에 저장할 리뷰 본문 최대 길이(펼쳐보기용 — 사실상 전문)
 
 // 대용량 diff 를 파일(diff --git) 경계에서 여러 조각으로 분할.
@@ -203,7 +206,7 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
           review = await chatComplete(cfg.model, [
             { role: "system", content: sys },
             { role: "user", content: `${prHead}\n\n[변경사항 diff]\n${fullDiff}` },
-          ], { temperature: 0.2 });
+          ], { temperature: 0.2, num_ctx: REVIEW_NUM_CTX });
         } else {
           // 대용량 diff: 파일 경계로 분할해 각 부분을 관찰(map) → 하나로 종합(reduce)
           const { chunks, covered } = splitDiffIntoChunks(fullDiff, MAX_DIFF, MAX_CHUNKS);
@@ -218,7 +221,7 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
             const obs = await chatComplete(cfg.model, [
               { role: "system", content: mapSys },
               { role: "user", content: `${prHead}\n(부분 ${i + 1}/${chunks.length})\n\n[변경사항 diff 일부]\n${chunks[i]}` },
-            ], { temperature: 0.2 });
+            ], { temperature: 0.2, num_ctx: REVIEW_NUM_CTX });
             observations.push(`## 부분 ${i + 1}/${chunks.length} 관찰\n${obs.trim()}`);
           }
           review = await chatComplete(cfg.model, [
@@ -228,7 +231,7 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
               `아래는 큰 변경(diff)을 ${chunks.length}개 부분으로 나눠 각 부분을 검토한 관찰 결과입니다` +
               `${covered ? "(전체 변경을 빠짐없이 검토했습니다)" : "(변경이 매우 커서 일부는 검토에서 제외되었습니다 — 확신도를 낮게 잡으세요)"}. ` +
               `이 관찰들을 종합해 하나의 최종 한국어 리뷰를 작성하세요.\n\n${observations.join("\n\n")}` },
-          ], { temperature: 0.2 });
+          ], { temperature: 0.2, num_ctx: REVIEW_NUM_CTX });
         }
 
         // 모델의 승인 의견(VERDICT) — 실제 자동승인은 아래 게이트를 함께 통과해야 함

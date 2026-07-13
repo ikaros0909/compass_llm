@@ -63,7 +63,7 @@ export interface ChatMessage {
 export async function chatComplete(
   model: string,
   messages: ChatMessage[],
-  options?: { temperature?: number },
+  options?: { temperature?: number; num_ctx?: number },
 ): Promise<string> {
   const r = await fetch(`${BASE}/api/chat`, {
     method: "POST",
