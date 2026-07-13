@@ -28,6 +28,7 @@ export async function GET() {
       qualityScore: l.qualityScore, riskLevel: l.riskLevel, confidence: l.confidence, needsReview: l.needsReview,
       filesChanged: l.filesChanged, linesChanged: l.linesChanged,
       reviewReasons: (() => { try { return JSON.parse(l.reviewReasons || "[]"); } catch { return []; } })(),
+      advisories: (() => { try { return JSON.parse(l.advisories || "[]"); } catch { return []; } })(),
     })),
   });
 }

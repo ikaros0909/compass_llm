@@ -300,7 +300,7 @@ export default function CodeReviewPage() {
                     );
                   })() : <span className="text-faint">—</span>}
                 </td>
-                <td className="px-3 py-3 text-center">
+                <td className="px-3 py-3 text-center whitespace-nowrap">
                   {l.message
                     ? <button onClick={() => toggleRow(l.id)} title={open ? "메모 접기" : "메모 펼치기"}
                         className="inline-flex items-center gap-0.5 text-muted hover:text-fg rounded px-1.5 py-0.5 hover:bg-elevated/60 transition-colors">
@@ -308,9 +308,13 @@ export default function CodeReviewPage() {
                         {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                       </button>
                     : <span className="text-faint">—</span>}
+                  {l.advisories?.length > 0 && (
+                    <span className="ml-1 text-info text-xs align-middle cursor-default"
+                      title={`기존 코드 참고 권고 ${l.advisories.length}건 (이번 PR 과 무관 · 승인·품질에 미반영)`}>💡{l.advisories.length}</span>
+                  )}
                 </td>
               </tr>
-              {open && (l.message || l.reviewReasons?.length > 0) && (
+              {open && (l.message || l.reviewReasons?.length > 0 || l.advisories?.length > 0) && (
                 <tr className="bg-elevated/30">
                   <td colSpan={9} className="px-5 pb-3 pt-0 space-y-2">
                     {(l.filesChanged != null || l.linesChanged != null) && (
@@ -318,9 +322,17 @@ export default function CodeReviewPage() {
                     )}
                     {l.reviewReasons?.length > 0 && (
                       <div className="rounded-lg border border-border bg-surface/50 p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-faint mb-1.5">주요 지적 · 감점 사유</div>
+                        <div className="text-[11px] uppercase tracking-wide text-faint mb-1.5">이번 변경 · 주요 지적 · 감점 사유</div>
                         <ul className="list-disc pl-4 text-xs text-muted space-y-0.5">
                           {l.reviewReasons.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {l.advisories?.length > 0 && (
+                      <div className="rounded-lg border border-info/30 bg-info/5 p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-info mb-1.5">💡 참고 권고 · 기존 코드 <span className="normal-case text-faint">(이번 PR 과 무관 · 승인·품질에 미반영)</span></div>
+                        <ul className="list-disc pl-4 text-xs text-muted space-y-0.5">
+                          {l.advisories.map((r: string, i: number) => <li key={i}>{r}</li>)}
                         </ul>
                       </div>
                     )}

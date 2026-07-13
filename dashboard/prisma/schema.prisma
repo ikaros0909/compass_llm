@@ -102,7 +102,8 @@ model CodeReviewLog {
   riskLevel     String   @default("") // low | medium | high (버그·보안 문제 가능성)
   confidence    String   @default("") // low | medium | high (모델 판단 확신도)
   needsReview   Boolean  @default(false) // 자동승인이어도 사람이 다시 볼 것을 권장
-  reviewReasons String   @default("") // 감점·우려 사유 JSON 배열 (모델 + 객관 휴리스틱)
+  reviewReasons String   @default("") // 이번 변경에 대한 감점·우려 사유 JSON 배열 (모델 + 객관 휴리스틱)
+  advisories    String   @default("") // 이번 PR 과 무관한 기존 코드 참고 권고 JSON 배열 (승인·품질 미반영)
   filesChanged  Int?     // diff 기준 변경 파일 수
   linesChanged  Int?     // diff 기준 변경 라인 수(추가+삭제)
   message    String   @default("") // 요약 또는 오류
