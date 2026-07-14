@@ -67,6 +67,27 @@ def health():
 
 
 # ──────────────────────────────────────────────────────────
+# SBOM 보안 스캔 (Trivy) — 대시보드가 저장소별로 호출하는 내부 엔드포인트
+# ──────────────────────────────────────────────────────────
+class SbomScanRequest(BaseModel):
+    workspace: str
+    repoSlug: str
+    token: str
+    authUsername: str = ""
+
+
+@app.post("/sbom/scan")
+def sbom_scan(req: SbomScanRequest):
+    from . import sbom
+    if not req.workspace or not req.repoSlug or not req.token:
+        raise HTTPException(400, "workspace·repoSlug·token 이 필요합니다.")
+    try:
+        return sbom.scan_repo(req.workspace, req.repoSlug, req.token, req.authUsername)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ──────────────────────────────────────────────────────────
 # RAG (faiss + bge-m3) — 대시보드/공개 API 가 /rag/* 로 프록시
 # 인증/Rate limit 은 대시보드가 처리하므로 워커에선 생략.
 # ──────────────────────────────────────────────────────────

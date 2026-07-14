@@ -48,6 +48,57 @@ model RequestLog {
   @@index([apiKeyId, createdAt])
 }
 
+// SBOM 보안 — 저장소별 의존성 취약점 일일 점검
+model SbomConfig {
+  id           String   @id @default("default")
+  workspace    String   @default("")
+  repoSlugs    String   @default("") // 쉼표 구분 저장소 slug
+  authUsername String   @default("")
+  token        String   @default("") // 비우면 코드리뷰 토큰 재사용
+  scanHour     Int      @default(3)  // 매일 실행 시각(0~23)
+  enabled      Boolean  @default(false)
+  updatedAt    DateTime @updatedAt
+}
+
+// 저장소별 스캔 이력(집계) — 추세용 보관
+model SbomScan {
+  id         BigInt   @id @default(autoincrement())
+  repoSlug   String   @default("")
+  commit     String   @default("")
+  status     String   @default("ok") // ok | error
+  critical   Int      @default(0)
+  high       Int      @default(0)
+  medium     Int      @default(0)
+  low        Int      @default(0)
+  unknown    Int      @default(0)
+  total      Int      @default(0)
+  durationMs Int      @default(0)
+  message    String   @default("")
+  createdAt  DateTime @default(now())
+
+  @@index([repoSlug, createdAt])
+  @@index([createdAt])
+}
+
+// 현재(최신 스캔) 취약점 상세 — 저장소 재스캔 시 해당 repo 것 갈아끼움
+model SbomFinding {
+  id               BigInt   @id @default(autoincrement())
+  repoSlug         String   @default("")
+  ecosystem        String   @default("")
+  target           String   @default("")
+  pkgName          String   @default("")
+  installedVersion String   @default("")
+  fixedVersion     String   @default("")
+  vulnId           String   @default("")
+  severity         String   @default("")
+  title            String   @default("")
+  url              String   @default("")
+  createdAt        DateTime @default(now())
+
+  @@index([repoSlug])
+  @@index([severity])
+}
+
 model MetricSample {
   id          BigInt   @id @default(autoincrement())
   gpuIndex    Int

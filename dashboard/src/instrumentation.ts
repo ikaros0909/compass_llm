@@ -4,6 +4,7 @@ export async function register() {
   const { ensureAdminSeed } = await import("./lib/auth");
   const { startMetricsCollector } = await import("./lib/metrics");
   const { startCodeReviewPoller } = await import("./lib/codereview");
+  const { startSbomPoller } = await import("./lib/sbom");
   try {
     await ensureAdminSeed();
   } catch (e) {
@@ -11,4 +12,5 @@ export async function register() {
   }
   startMetricsCollector();
   startCodeReviewPoller();
+  startSbomPoller();
 }

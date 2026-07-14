@@ -28,6 +28,7 @@ services:
       HF_HOME: /data/rag_store/hf-cache          # 임베딩 모델 캐시 → 볼륨에 영속(재빌드 시 재다운로드 방지)
       EMBED_DEVICE: ${EMBED_DEVICE:-cpu}
       HF_TOKEN: ${HF_TOKEN:-}
+      TRIVY_CACHE_DIR: /data/rag_store/trivy-cache   # Trivy 취약점 DB 캐시(볼륨 영속)
     volumes:
       - rag_store:/data/rag_store
       - ./worker/gguf:/gguf:ro
