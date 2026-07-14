@@ -1,11 +1,11 @@
 "use client";
 import useSWR from "swr";
-import { useEffect, useState, Fragment } from "react";
+import { useEffect, useRef, useState, Fragment } from "react";
 import { fetcher } from "@/lib/fetcher";
 import PageHeader from "@/components/PageHeader";
 import {
   ShieldAlert, Save, ScanLine, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronUp,
-  TriangleAlert, ExternalLink, PackageSearch,
+  TriangleAlert, ExternalLink, PackageSearch, FolderSearch,
 } from "lucide-react";
 
 const SEV = {
@@ -22,26 +22,55 @@ function Count({ n, cls }: { n: number; cls: string }) {
 
 export default function SbomPage() {
   const { data, mutate } = useSWR("/api/admin/sbom", fetcher, { refreshInterval: 15000 });
-  const [form, setForm] = useState({ workspace: "", repoSlugs: "", authUsername: "", token: "", scanHour: 3, enabled: false });
+  const [form, setForm] = useState({ workspace: "", repoSlugs: [] as string[], authUsername: "", token: "", scanHour: 3, enabled: false });
   const [tokenSet, setTokenSet] = useState(false);
   const [usingCr, setUsingCr] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  const [busy, setBusy] = useState<"" | "save" | "scan">("");
+  const [busy, setBusy] = useState<"" | "save" | "scan" | "load">("");
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [dirty, setDirty] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [repoList, setRepoList] = useState<{ slug: string; name: string }[]>([]);
+  const [loadMsg, setLoadMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     if (data?.config && !hydrated) {
       const c = data.config;
-      setForm({ workspace: c.workspace, repoSlugs: (c.repoSlugs ?? []).join(", "), authUsername: c.authUsername, token: "", scanHour: c.scanHour, enabled: c.enabled });
+      setForm({ workspace: c.workspace, repoSlugs: c.repoSlugs ?? [], authUsername: c.authUsername, token: "", scanHour: c.scanHour, enabled: c.enabled });
       setTokenSet(c.tokenSet); setUsingCr(c.usingCodeReviewCreds); setHydrated(true);
     }
   }, [data, hydrated]);
 
-  const up = (k: string, v: any) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); setSaveMsg(null); };
+  // 저장된 저장소가 있으면 목록 자동 로드해 체크 상태 표시
+  const autoLoaded = useRef(false);
+  useEffect(() => {
+    if (hydrated && !autoLoaded.current && repoList.length === 0 && (form.workspace || usingCr)) {
+      autoLoaded.current = true;
+      loadRepos();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
 
+  const up = (k: string, v: any) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); setSaveMsg(null); };
+  const toggleRepo = (slug: string) => {
+    setForm((f) => ({ ...f, repoSlugs: f.repoSlugs.includes(slug) ? f.repoSlugs.filter((s) => s !== slug) : [...f.repoSlugs, slug] }));
+    setDirty(true); setSaveMsg(null);
+  };
+
+  async function loadRepos() {
+    setBusy("load"); setLoadMsg(null);
+    try {
+      const r = await fetch("/api/admin/codereview/repos", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace: form.workspace, authUsername: form.authUsername, token: form.token }),
+      });
+      const j = await r.json();
+      if (j.ok) { setRepoList((j.repos ?? []).map((x: any) => ({ slug: x.slug, name: x.name }))); setLoadMsg({ ok: true, text: `저장소 ${j.repos?.length ?? 0}개` }); }
+      else setLoadMsg({ ok: false, text: j.message ?? "불러오기 실패" });
+    } catch { setLoadMsg({ ok: false, text: "불러오기 오류" }); }
+    finally { setBusy(""); }
+  }
   async function save() {
     setBusy("save"); setSaveMsg(null);
     try {
@@ -64,6 +93,9 @@ export default function SbomPage() {
   const repos: any[] = data?.repos ?? [];
   const totalCrit = repos.reduce((a, r) => a + (r.critical ?? 0), 0);
   const totalHigh = repos.reduce((a, r) => a + (r.high ?? 0), 0);
+  // 불러온 목록 + 저장된 선택(목록에 없어도) 병합
+  const known = new Set(repoList.map((r) => r.slug));
+  const pickerRows = [...repoList, ...form.repoSlugs.filter((s) => !known.has(s)).map((s) => ({ slug: s, name: s }))];
 
   return (
     <div className="space-y-4">
@@ -74,10 +106,7 @@ export default function SbomPage() {
       {(totalCrit + totalHigh) > 0 && (
         <div className="card !py-3 flex items-center gap-3 ring-1 ring-danger/40 bg-danger/5">
           <TriangleAlert className="w-5 h-5 text-danger shrink-0" />
-          <div className="text-sm">
-            <b className="text-danger">치명 {totalCrit} · 높음 {totalHigh}</b>
-            <span className="text-muted"> 등급의 취약점이 있습니다. 아래에서 저장소별로 확인하고 의존성을 업데이트하세요.</span>
-          </div>
+          <div className="text-sm"><b className="text-danger">치명 {totalCrit} · 높음 {totalHigh}</b><span className="text-muted"> 등급의 취약점이 있습니다. 저장소별로 확인해 의존성을 업데이트하세요.</span></div>
         </div>
       )}
 
@@ -86,28 +115,53 @@ export default function SbomPage() {
         <div className="text-sm font-medium flex items-center gap-2"><PackageSearch className="w-4 h-4 text-accent-2" /> 스캔 설정</div>
         <div className="grid sm:grid-cols-2 gap-3">
           <div><label className="label">Workspace</label><input className="input" placeholder="비우면 코드리뷰 설정 재사용" value={form.workspace} onChange={(e) => up("workspace", e.target.value)} /></div>
-          <div><label className="label">저장소 slug <span className="text-faint">(쉼표로 구분)</span></label><input className="input" placeholder="repo-a, repo-b" value={form.repoSlugs} onChange={(e) => up("repoSlugs", e.target.value)} /></div>
           <div>
             <label className="label">Access Token {tokenSet ? <span className="text-success">· 저장됨</span> : usingCr ? <span className="text-faint">· 코드리뷰 토큰 재사용</span> : null}</label>
             <input className="input" type="password" placeholder={tokenSet ? "변경하려면 새 토큰" : "비우면 코드리뷰 토큰 재사용"} value={form.token} onChange={(e) => up("token", e.target.value)} />
           </div>
-          <div className="flex items-end gap-3">
-            <div><label className="label">매일 실행 시각</label>
-              <select className="input !w-28" value={form.scanHour} onChange={(e) => up("scanHour", Number(e.target.value))}>
-                {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
-              </select>
-            </div>
-            <label className="flex items-center gap-2 text-sm cursor-pointer mb-2.5">
-              <input type="checkbox" className="accent-accent w-4 h-4" checked={form.enabled} onChange={(e) => up("enabled", e.target.checked)} /> 일일 자동 스캔
-            </label>
-          </div>
         </div>
+
+        {/* 검사할 저장소 선택 */}
+        <div>
+          <div className="flex items-center gap-2 flex-wrap mb-1.5">
+            <label className="label mb-0">검사할 저장소 <span className="text-faint">({form.repoSlugs.length}개 선택됨)</span></label>
+            <button className="btn-ghost !py-1 !px-2.5 !text-xs" onClick={loadRepos} disabled={!!busy}>
+              {busy === "load" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderSearch className="w-3.5 h-3.5" />} 저장소 불러오기
+            </button>
+            {loadMsg && <span className={`text-xs flex items-center gap-1 ${loadMsg.ok ? "text-success" : "text-danger"}`}>{loadMsg.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}{loadMsg.text}</span>}
+          </div>
+          {pickerRows.length === 0 ? (
+            <div className="text-xs text-faint py-3 px-1 rounded-lg border border-border">"저장소 불러오기"를 눌러 목록을 표시하세요. (Workspace·Token 을 비우면 코드리뷰 설정을 사용합니다)</div>
+          ) : (
+            <div className="max-h-56 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
+              {pickerRows.map((r) => (
+                <label key={r.slug} className="flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-elevated/50">
+                  <input type="checkbox" className="accent-accent w-4 h-4" checked={form.repoSlugs.includes(r.slug)} onChange={() => toggleRepo(r.slug)} />
+                  <span className="truncate">{r.name}</span>
+                  <span className="text-faint text-xs ml-auto font-mono shrink-0">{r.slug}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <div><label className="label">매일 실행 시각</label>
+            <select className="input !w-28" value={form.scanHour} onChange={(e) => up("scanHour", Number(e.target.value))}>
+              {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+            </select>
+          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer mt-5">
+            <input type="checkbox" className="accent-accent w-4 h-4" checked={form.enabled} onChange={(e) => up("enabled", e.target.checked)} /> 일일 자동 스캔
+          </label>
+        </div>
+
         <div className="flex items-center gap-2 flex-wrap pt-1">
           <button className="btn" onClick={save} disabled={!!busy}>{busy === "save" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 저장</button>
-          <button className="btn-ghost" onClick={scan} disabled={!!busy}>{busy === "scan" ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />} 지금 스캔</button>
+          <button className="btn-ghost" onClick={scan} disabled={!!busy || form.repoSlugs.length === 0}>{busy === "scan" ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />} 지금 스캔</button>
           {saveMsg ? (
             <span className={`text-xs flex items-center gap-1 ${saveMsg.ok ? "text-success" : "text-danger"}`}>{saveMsg.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />} {saveMsg.text}</span>
-          ) : dirty ? <span className="text-xs flex items-center gap-1 text-warn"><span className="w-1.5 h-1.5 rounded-full bg-warn inline-block" /> 저장되지 않은 변경사항</span> : null}
+          ) : dirty ? <span className="text-xs flex items-center gap-1 text-warn"><span className="w-1.5 h-1.5 rounded-full bg-warn inline-block" /> 저장되지 않은 변경사항 (저장해야 스캔에 반영)</span> : null}
         </div>
         {scanMsg && <p className="text-xs text-muted">{scanMsg}</p>}
       </div>
@@ -126,7 +180,7 @@ export default function SbomPage() {
               </tr>
             </thead>
             <tbody>
-              {repos.length === 0 && <tr><td colSpan={7} className="px-5 py-12 text-center text-faint"><ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-50" />설정에서 저장소를 지정하고 "지금 스캔"을 눌러보세요.</td></tr>}
+              {repos.length === 0 && <tr><td colSpan={7} className="px-5 py-12 text-center text-faint"><ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-50" />검사할 저장소를 선택·저장하고 "지금 스캔"을 눌러보세요.</td></tr>}
               {repos.map((r) => (
                 <Fragment key={r.repoSlug}>
                   <tr className={`table-row ${(r.critical ?? 0) > 0 ? "bg-danger/5" : ""}`}>
