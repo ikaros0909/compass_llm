@@ -1,11 +1,11 @@
 "use client";
 import useSWR from "swr";
-import { useEffect, useRef, useState, Fragment } from "react";
+import { useEffect, useState, Fragment } from "react";
 import { fetcher } from "@/lib/fetcher";
 import PageHeader from "@/components/PageHeader";
 import {
   ShieldAlert, Save, ScanLine, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronUp,
-  TriangleAlert, ExternalLink, PackageSearch, FolderSearch,
+  TriangleAlert, ExternalLink, PackageSearch, RefreshCw,
 } from "lucide-react";
 
 const SEV = {
@@ -41,16 +41,6 @@ export default function SbomPage() {
       setTokenSet(c.tokenSet); setUsingCr(c.usingCodeReviewCreds); setHydrated(true);
     }
   }, [data, hydrated]);
-
-  // 저장된 저장소가 있으면 목록 자동 로드해 체크 상태 표시
-  const autoLoaded = useRef(false);
-  useEffect(() => {
-    if (hydrated && !autoLoaded.current && repoList.length === 0 && (form.workspace || usingCr)) {
-      autoLoaded.current = true;
-      loadRepos();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated]);
 
   const up = (k: string, v: any) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); setSaveMsg(null); };
   const toggleRepo = (slug: string) => {
@@ -125,13 +115,13 @@ export default function SbomPage() {
         <div>
           <div className="flex items-center gap-2 flex-wrap mb-1.5">
             <label className="label mb-0">검사할 저장소 <span className="text-faint">({form.repoSlugs.length}개 선택됨)</span></label>
-            <button className="btn-ghost !py-1 !px-2.5 !text-xs" onClick={loadRepos} disabled={!!busy}>
-              {busy === "load" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderSearch className="w-3.5 h-3.5" />} 저장소 불러오기
+            <button className="btn-ghost !py-1 !px-2.5 !text-xs" onClick={loadRepos} disabled={!!busy} title="Bitbucket 에서 저장소 목록을 새로 불러옵니다">
+              {busy === "load" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} 저장소 목록 새로고침
             </button>
             {loadMsg && <span className={`text-xs flex items-center gap-1 ${loadMsg.ok ? "text-success" : "text-danger"}`}>{loadMsg.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}{loadMsg.text}</span>}
           </div>
           {pickerRows.length === 0 ? (
-            <div className="text-xs text-faint py-3 px-1 rounded-lg border border-border">"저장소 불러오기"를 눌러 목록을 표시하세요. (Workspace·Token 을 비우면 코드리뷰 설정을 사용합니다)</div>
+            <div className="text-xs text-faint py-3 px-3 rounded-lg border border-border">위 <b className="text-muted">저장소 목록 새로고침</b> 을 눌러 목록을 불러오세요. (Workspace·Token 을 비우면 코드리뷰 설정을 사용합니다)</div>
           ) : (
             <div className="max-h-56 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
               {pickerRows.map((r) => (
