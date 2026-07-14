@@ -11,9 +11,10 @@ export async function POST(req: NextRequest) {
   if (error) return error;
   const b = await req.json().catch(() => ({}));
   const existing = await prisma.codeReviewConfig.findUnique({ where: { id: "default" } });
+  // 빈 값이면 저장된 코드리뷰 설정으로 폴백(|| 사용 — 빈 문자열도 폴백되게).
   const cfg = {
-    workspace: (b.workspace ?? existing?.workspace ?? "").trim(),
-    authUsername: (b.authUsername ?? existing?.authUsername ?? "").trim(),
+    workspace: (b.workspace || existing?.workspace || "").trim(),
+    authUsername: (b.authUsername || existing?.authUsername || "").trim(),
     token: (typeof b.token === "string" && b.token.length > 0 ? b.token : existing?.token) ?? "",
   };
   return NextResponse.json(await listRepos(cfg));

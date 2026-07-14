@@ -109,6 +109,10 @@ export default function SbomPage() {
             <label className="label">Access Token {tokenSet ? <span className="text-success">· 저장됨</span> : usingCr ? <span className="text-faint">· 코드리뷰 토큰 재사용</span> : null}</label>
             <input className="input" type="password" placeholder={tokenSet ? "변경하려면 새 토큰" : "비우면 코드리뷰 토큰 재사용"} value={form.token} onChange={(e) => up("token", e.target.value)} />
           </div>
+          <div className="sm:col-span-2">
+            <label className="label">Username / Email <span className="text-faint">(API 토큰·App Password 사용 시)</span></label>
+            <input className="input" placeholder="비우면 코드리뷰 설정 재사용 · API 토큰이면 Atlassian 이메일 · Repo Access Token 이면 비움" value={form.authUsername} onChange={(e) => up("authUsername", e.target.value)} />
+          </div>
         </div>
 
         {/* 검사할 저장소 선택 */}

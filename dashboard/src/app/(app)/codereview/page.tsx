@@ -1,6 +1,6 @@
 "use client";
 import useSWR from "swr";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { fetcher } from "@/lib/fetcher";
 import PageHeader from "@/components/PageHeader";
 import {
@@ -48,16 +48,6 @@ export default function CodeReviewPage() {
       setHydrated(true);
     }
   }, [data, hydrated]);
-
-  // 새로고침 시: 토큰이 저장돼 있으면 저장소 목록을 자동으로 다시 불러와 체크 상태 표시
-  const autoLoadedRef = useRef(false);
-  useEffect(() => {
-    if (hydrated && tokenSet && !autoLoadedRef.current && repos.length === 0) {
-      autoLoadedRef.current = true;
-      loadRepos();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, tokenSet]);
 
   const up = (k: string, v: any) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); setSaveMsg(null); };
   const toggleRepo = (slug: string) => {
