@@ -5,8 +5,9 @@ import { fetcher } from "@/lib/fetcher";
 import PageHeader from "@/components/PageHeader";
 import {
   ShieldAlert, Save, ScanLine, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronUp,
-  TriangleAlert, ExternalLink, PackageSearch, RefreshCw,
+  TriangleAlert, ExternalLink, PackageSearch, RefreshCw, TrendingUp,
 } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const SEV = {
   CRITICAL: { ko: "치명", cls: "bg-danger/15 text-danger" },
@@ -188,6 +189,9 @@ export default function SbomPage() {
         {scanMsg && <p className="text-xs text-muted">{scanMsg}</p>}
       </div>
 
+      {/* 취약점 추이 */}
+      <TrendCard repos={repos} />
+
       {/* 저장소별 현황 */}
       <div className="card !p-0 overflow-hidden">
         <div className="px-5 py-3 text-sm font-medium border-b border-border">저장소별 취약점 현황</div>
@@ -232,6 +236,65 @@ export default function SbomPage() {
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TrendCard({ repos }: { repos: any[] }) {
+  const [repo, setRepo] = useState("all");
+  const [days, setDays] = useState(30);
+  const { data } = useSWR(`/api/admin/sbom/trend?repo=${encodeURIComponent(repo)}&days=${days}`, fetcher, { refreshInterval: 60000 });
+  const series: any[] = data?.series ?? [];
+  const last = series[series.length - 1];
+  const prev = series[series.length - 2];
+  const delta = last && prev ? (last.critical + last.high) - (prev.critical + prev.high) : 0;
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div className="text-sm font-medium flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-accent-2" /> 취약점 추이
+          {last && prev && (
+            <span className={`text-xs font-normal ${delta > 0 ? "text-danger" : delta < 0 ? "text-success" : "text-faint"}`}>
+              (치명+높음 전일 대비 {delta > 0 ? `+${delta}` : delta})
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <select className="input !w-auto !py-1 !text-xs cursor-pointer" value={repo} onChange={(e) => setRepo(e.target.value)}>
+            <option value="all">전체 합계</option>
+            {repos.map((r) => <option key={r.repoSlug} value={r.repoSlug}>{r.repoSlug}</option>)}
+          </select>
+          <select className="input !w-auto !py-1 !text-xs cursor-pointer" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            <option value={7}>최근 7일</option><option value={30}>최근 30일</option><option value={90}>최근 90일</option>
+          </select>
+        </div>
+      </div>
+      {series.length < 2 ? (
+        <div className="text-xs text-faint py-10 text-center">
+          {series.length === 0 ? "스캔 이력이 없습니다." : "데이터가 하루치뿐입니다."} 매일 스캔이 쌓이면 날짜별 추이가 그래프로 표시됩니다.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={series} margin={{ left: -12, right: 8, top: 4 }}>
+            <CartesianGrid stroke="#222c3d" vertical={false} />
+            <XAxis dataKey="date" stroke="#5a6678" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(d) => String(d).slice(5)} minTickGap={24} />
+            <YAxis stroke="#5a6678" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} width={34} />
+            <Tooltip contentStyle={{ background: "#131926", border: "1px solid #222c3d", borderRadius: 12, fontSize: 12 }} labelStyle={{ color: "#8a97ad" }} />
+            <Line type="monotone" dataKey="critical" name="치명" stroke="#f43f5e" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="high" name="높음" stroke="#f59e0b" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="medium" name="중간" stroke="#38bdf8" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="low" name="낮음" stroke="#5a6678" strokeWidth={2} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+      <div className="flex items-center gap-3 flex-wrap mt-1 text-[11px] text-muted">
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-danger inline-block" />치명</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-warn inline-block" />높음</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-info inline-block" />중간</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-faint inline-block" />낮음</span>
+        <span className="ml-auto text-faint">하루 여러 번 스캔 시 그 날의 마지막 결과 기준</span>
       </div>
     </div>
   );
