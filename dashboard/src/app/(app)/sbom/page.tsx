@@ -28,6 +28,13 @@ function vulnLink(id: string, fallback: string): string {
   return fallback || (id ? `https://osv.dev/vulnerability/${id}` : "");
 }
 
+// 취약점 정보를 관리하는 출처(기관) — 이모지 + 호버 설명
+function vulnSource(id: string): { emoji: string; label: string } {
+  if (/^CVE-/i.test(id)) return { emoji: "🏛️", label: "출처: NVD — 미국 NIST(정부)가 관리하는 국가 취약점 데이터베이스(National Vulnerability Database)" };
+  if (/^GHSA-/i.test(id)) return { emoji: "🐙", label: "출처: GitHub Security Advisory — GitHub(Microsoft)가 관리하는 어드바이저리 DB" };
+  return { emoji: "🔎", label: "출처: OSV — Google 주도의 오픈소스 취약점 데이터베이스(osv.dev)" };
+}
+
 export default function SbomPage() {
   const { data, mutate } = useSWR("/api/admin/sbom", fetcher, {
     refreshInterval: (d: any) => (d?.scanning?.running ? 3000 : 15000), // 스캔 중엔 빠르게 갱신
@@ -244,7 +251,7 @@ function FindingsRow({ repo }: { repo: string }) {
               <thead className="text-faint text-left"><tr className="border-b border-border">
                 <th className="px-3 py-2 font-medium">심각도</th><th className="px-3 py-2 font-medium">패키지</th>
                 <th className="px-3 py-2 font-medium">현재</th><th className="px-3 py-2 font-medium">수정 버전</th>
-                <th className="px-3 py-2 font-medium">취약점</th><th className="px-3 py-2 font-medium">생태계</th>
+                <th className="px-3 py-2 font-medium">취약점 · 출처</th><th className="px-3 py-2 font-medium">생태계</th>
               </tr></thead>
               <tbody>
                 {findings.map((f) => {
@@ -256,9 +263,18 @@ function FindingsRow({ repo }: { repo: string }) {
                       <td className="px-3 py-2 text-muted font-mono">{f.installedVersion}</td>
                       <td className="px-3 py-2 font-mono">{f.fixedVersion ? <span className="text-success">{f.fixedVersion}</span> : <span className="text-faint">없음</span>}</td>
                       <td className="px-3 py-2">
-                        {(() => { const href = vulnLink(f.vulnId, f.url); return href
-                          ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-2 hover:underline inline-flex items-center gap-1" title={/^CVE-/i.test(f.vulnId) ? "NVD(미국 NIST)에서 보기" : undefined}>{f.vulnId}<ExternalLink className="w-3 h-3" /></a>
-                          : f.vulnId; })()}
+                        {(() => {
+                          const href = vulnLink(f.vulnId, f.url);
+                          const src = vulnSource(f.vulnId);
+                          return (
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="cursor-help select-none" title={src.label}>{src.emoji}</span>
+                              {href
+                                ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-2 hover:underline inline-flex items-center gap-1">{f.vulnId}<ExternalLink className="w-3 h-3" /></a>
+                                : f.vulnId}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2 text-faint">{f.ecosystem}</td>
                     </tr>
