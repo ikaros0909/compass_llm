@@ -21,7 +21,9 @@ function Count({ n, cls }: { n: number; cls: string }) {
 }
 
 export default function SbomPage() {
-  const { data, mutate } = useSWR("/api/admin/sbom", fetcher, { refreshInterval: 15000 });
+  const { data, mutate } = useSWR("/api/admin/sbom", fetcher, {
+    refreshInterval: (d: any) => (d?.scanning?.running ? 3000 : 15000), // 스캔 중엔 빠르게 갱신
+  });
   const [form, setForm] = useState({ workspace: "", repoSlugs: [] as string[], authUsername: "", token: "", scanHour: 3, enabled: false });
   const [tokenSet, setTokenSet] = useState(false);
   const [usingCr, setUsingCr] = useState(false);
@@ -81,6 +83,7 @@ export default function SbomPage() {
   function toggle(repo: string) { setOpen((s) => { const n = new Set(s); n.has(repo) ? n.delete(repo) : n.add(repo); return n; }); }
 
   const repos: any[] = data?.repos ?? [];
+  const scanning = data?.scanning ?? { running: false, total: 0, done: 0, current: "" };
   const totalCrit = repos.reduce((a, r) => a + (r.critical ?? 0), 0);
   const totalHigh = repos.reduce((a, r) => a + (r.high ?? 0), 0);
   // 불러온 목록 + 저장된 선택(목록에 없어도) 병합
@@ -92,6 +95,16 @@ export default function SbomPage() {
       <PageHeader title="SBOM 보안" desc="저장소별 의존성 취약점(CVE)을 Trivy 로 점검합니다">
         <span className={`badge ${form.enabled ? "badge-on" : "badge-off"}`}>{form.enabled ? `매일 ${String(form.scanHour).padStart(2, "0")}시 자동` : "자동 꺼짐"}</span>
       </PageHeader>
+
+      {scanning.running && (
+        <div className="card !py-3 flex items-center gap-3 ring-1 ring-accent/40 bg-accent/5">
+          <Loader2 className="w-5 h-5 text-accent-2 shrink-0 animate-spin" />
+          <div className="text-sm">
+            <b className="text-accent-2">스캔 진행 중</b>
+            <span className="text-muted"> · {scanning.done}/{scanning.total} 완료{scanning.current ? ` · 현재: ${scanning.current}` : ""} (결과는 자동 갱신됩니다)</span>
+          </div>
+        </div>
+      )}
 
       {(totalCrit + totalHigh) > 0 && (
         <div className="card !py-3 flex items-center gap-3 ring-1 ring-danger/40 bg-danger/5">
@@ -152,7 +165,7 @@ export default function SbomPage() {
 
         <div className="flex items-center gap-2 flex-wrap pt-1">
           <button className="btn" onClick={save} disabled={!!busy}>{busy === "save" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 저장</button>
-          <button className="btn-ghost" onClick={scan} disabled={!!busy || form.repoSlugs.length === 0}>{busy === "scan" ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />} 지금 스캔</button>
+          <button className="btn-ghost" onClick={scan} disabled={!!busy || scanning.running || form.repoSlugs.length === 0}>{(busy === "scan" || scanning.running) ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />} {scanning.running ? "스캔 중…" : "지금 스캔"}</button>
           {saveMsg ? (
             <span className={`text-xs flex items-center gap-1 ${saveMsg.ok ? "text-success" : "text-danger"}`}>{saveMsg.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />} {saveMsg.text}</span>
           ) : dirty ? <span className="text-xs flex items-center gap-1 text-warn"><span className="w-1.5 h-1.5 rounded-full bg-warn inline-block" /> 저장되지 않은 변경사항 (저장해야 스캔에 반영)</span> : null}

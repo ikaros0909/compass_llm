@@ -13,10 +13,18 @@ from urllib.parse import quote
 
 
 def _clone_url(workspace: str, repo_slug: str, token: str, auth_username: str) -> str:
-    # authUsername 있으면 App Password/API 토큰 방식, 없으면 Access Token(x-token-auth) 방식
-    if auth_username:
-        return f"https://{quote(auth_username, safe='')}:{quote(token, safe='')}@bitbucket.org/{workspace}/{repo_slug}.git"
-    return f"https://x-token-auth:{quote(token, safe='')}@bitbucket.org/{workspace}/{repo_slug}.git"
+    # git HTTPS 인증 사용자명은 자격증명 종류별로 다르다:
+    #  - Atlassian API 토큰(사용자명이 이메일)      → x-bitbucket-api-token-auth
+    #  - App Password(사용자명이 Bitbucket username) → 그 사용자명
+    #  - Repository/Workspace Access Token(사용자명 없음) → x-token-auth
+    qt = quote(token, safe="")
+    if auth_username and "@" in auth_username:
+        user = "x-bitbucket-api-token-auth"
+    elif auth_username:
+        user = quote(auth_username, safe="")
+    else:
+        user = "x-token-auth"
+    return f"https://{user}:{qt}@bitbucket.org/{workspace}/{repo_slug}.git"
 
 
 def _redact(text: str, token: str) -> str:

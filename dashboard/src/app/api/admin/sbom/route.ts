@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { parseRepoSlugs } from "@/lib/codereview";
 import { requireAdmin } from "@/lib/authz";
+import { scanProgress } from "@/lib/sbom";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,7 @@ export async function GET() {
       enabled: cfg?.enabled ?? false,
     },
     repos: rows,
+    scanning: scanProgress(),
   });
 }
 

@@ -16,6 +16,11 @@ async function resolveConfig() {
 }
 
 let scanRunning = false;
+// 진행 상황(UI 피드백용)
+let progress = { running: false, total: 0, done: 0, current: "", startedAt: 0 };
+export function scanProgress() {
+  return progress;
+}
 
 export async function runSbomScans(): Promise<{ scanned: number; errors: number; details: string[] }> {
   if (scanRunning) return { scanned: 0, errors: 0, details: ["이미 스캔이 진행 중입니다."] };
@@ -31,10 +36,12 @@ export async function runSbomScans(): Promise<{ scanned: number; errors: number;
     }
 
     // 동시성 제한(2) 으로 순차 과부하 방지
+    progress = { running: true, total: repos.length, done: 0, current: "", startedAt: Date.now() };
     const queue = [...repos];
     const workers = Array.from({ length: Math.min(2, queue.length) }, async () => {
       while (queue.length) {
         const repoSlug = queue.shift()!;
+        progress.current = repoSlug;
         const started = Date.now();
         try {
           const res = await scanSbom({ workspace, repoSlug, token, authUsername });
@@ -60,6 +67,8 @@ export async function runSbomScans(): Promise<{ scanned: number; errors: number;
             data: { repoSlug, status: "error", durationMs: Date.now() - started, message: (e?.message ?? "오류").slice(0, 500) },
           }).catch(() => {});
           out.details.push(`[${repoSlug}] 오류: ${(e?.message ?? "").slice(0, 120)}`);
+        } finally {
+          progress.done++;
         }
       }
     });
@@ -67,6 +76,7 @@ export async function runSbomScans(): Promise<{ scanned: number; errors: number;
     return out;
   } finally {
     scanRunning = false;
+    progress = { ...progress, running: false, current: "" };
   }
 }
 
