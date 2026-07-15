@@ -5,7 +5,7 @@ import { fetcher } from "@/lib/fetcher";
 import PageHeader from "@/components/PageHeader";
 import {
   ShieldAlert, Save, ScanLine, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronUp,
-  TriangleAlert, ExternalLink, PackageSearch, RefreshCw, TrendingUp,
+  TriangleAlert, ExternalLink, PackageSearch, RefreshCw, TrendingUp, Sparkles, Copy, Check, X,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -55,6 +55,75 @@ function maxFix(list: string[]): string {
   return toks.reduce((m, v) => (cmpVer(v, m) > 0 ? v : m));
 }
 
+// AI 에게 붙여넣어 취약점 수정을 요청하는 프롬프트 — 패키지 1개
+function buildFixPrompt(repo: string, branch: string, g: any): string {
+  const vulns = g.vulns.map((v: any) => `  - [${v.severity}] ${v.vulnId} — 수정 버전: ${v.fixedVersion || "정식 수정본 없음"}`).join("\n");
+  return [
+    `아래 저장소의 의존성 취약점을 수정해줘.`,
+    ``,
+    `- 저장소: ${repo}`,
+    `- 브랜치: ${branch || "기본 브랜치"}`,
+    `- 생태계/패키지 매니저: ${g.ecosystem}`,
+    `- 대상 패키지: ${g.pkgName}`,
+    `- 현재 버전: ${g.installedVersion}`,
+    `- 권장 버전: ${g.rec ? `${g.rec} 이상` : "정식 수정본 없음 (대안·완화책 검토 필요)"}`,
+    ``,
+    `해결 대상 취약점 (${g.vulns.length}건):`,
+    vulns,
+    ``,
+    `요청사항:`,
+    `1. ${g.pkgName} 를 ${g.rec ? `${g.rec} 이상` : "가능한 최신 안전 버전"}으로 올려줘. 직접 의존성이면 매니페스트(package.json·requirements.txt 등)를, 전이 의존성이면 npm overrides/resolutions·pip constraints 등으로 강제해줘.`,
+    `2. 락파일을 갱신하고 설치·빌드가 정상 동작하는지 확인해줘.`,
+    `3. breaking change 가능성이 있으면 영향 범위와 코드 수정 방법을 알려줘.`,
+    `4. 업그레이드 후에도 남는 취약점이 있으면 함께 보고해줘.`,
+  ].join("\n");
+}
+
+// 저장소 전체 취약점을 한 번에 수정 요청하는 프롬프트
+function buildRepoPrompt(repo: string, branch: string, groups: any[]): string {
+  const lines = groups.map((g) => `- ${g.pkgName}: ${g.installedVersion} → ${g.rec || "정식 수정본 없음"} (${g.vulns.length}건, 최고 심각도 ${g.topSev})`).join("\n");
+  return [
+    `아래 저장소의 의존성 취약점(SBOM 스캔 결과)을 모두 수정해줘.`,
+    ``,
+    `- 저장소: ${repo}`,
+    `- 브랜치: ${branch || "기본 브랜치"}`,
+    ``,
+    `업그레이드 대상 (${groups.length}개 패키지):`,
+    lines,
+    ``,
+    `요청사항:`,
+    `1. 각 패키지를 권장 버전 이상으로 올려줘(직접/전이 의존성 구분해 매니페스트 또는 overrides/resolutions 사용).`,
+    `2. 락파일 갱신 및 설치·빌드 정상 여부 확인.`,
+    `3. breaking change 영향과 대응 방법, 남는 취약점을 보고.`,
+    `4. 심각도 높은 것(치명·높음)부터 우선 처리.`,
+  ].join("\n");
+}
+
+function PromptModal({ data, onClose }: { data: { title: string; text: string }; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try { await navigator.clipboard.writeText(data.text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard 불가 시 textarea 선택으로 대체 */ }
+  }
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+      <div className="card w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles className="w-4 h-4 text-accent-2" />
+          <span className="text-sm font-medium truncate">{data.title}</span>
+          <button onClick={onClose} className="ml-auto text-faint hover:text-white shrink-0" aria-label="닫기"><X className="w-5 h-5" /></button>
+        </div>
+        <textarea readOnly value={data.text} onFocus={(e) => e.currentTarget.select()}
+          className="input flex-1 min-h-[18rem] resize-none font-mono text-xs leading-relaxed" />
+        <div className="flex items-center gap-2 mt-3 flex-wrap">
+          <button className="btn" onClick={copy}>{copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />} {copied ? "복사됨" : "프롬프트 복사"}</button>
+          <button className="btn-ghost" onClick={onClose}>닫기</button>
+          <span className="text-xs text-faint ml-auto">복사해 Claude·ChatGPT 등에 붙여넣어 사용하세요</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SbomPage() {
   const { data, mutate } = useSWR("/api/admin/sbom", fetcher, {
     refreshInterval: (d: any) => (d?.scanning?.running ? 3000 : 15000), // 스캔 중엔 빠르게 갱신
@@ -68,6 +137,7 @@ export default function SbomPage() {
   const [dirty, setDirty] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [promptModal, setPromptModal] = useState<{ title: string; text: string } | null>(null);
   const [repoList, setRepoList] = useState<{ slug: string; name: string }[]>([]);
   const [loadMsg, setLoadMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -255,13 +325,15 @@ export default function SbomPage() {
                         : <span className="text-faint">—</span>}
                     </td>
                   </tr>
-                  {open.has(r.repoSlug) && <FindingsRow repo={r.repoSlug} />}
+                  {open.has(r.repoSlug) && <FindingsRow repo={r.repoSlug} branch={r.branch} onPrompt={setPromptModal} />}
                 </Fragment>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {promptModal && <PromptModal data={promptModal} onClose={() => setPromptModal(null)} />}
     </div>
   );
 }
@@ -325,7 +397,7 @@ function TrendCard({ repos }: { repos: any[] }) {
   );
 }
 
-function FindingsRow({ repo }: { repo: string }) {
+function FindingsRow({ repo, branch, onPrompt }: { repo: string; branch?: string; onPrompt: (d: { title: string; text: string }) => void }) {
   const { data } = useSWR(`/api/admin/sbom/findings?repo=${encodeURIComponent(repo)}`, fetcher);
   const findings: any[] = data?.findings ?? [];
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -355,21 +427,35 @@ function FindingsRow({ repo }: { repo: string }) {
           <div className="text-xs text-faint py-3">취약점이 없습니다.</div>
         ) : (
           <div className="space-y-1.5 py-1">
-            <div className="text-[11px] text-faint">패키지 {groups.length}개 · 권장 버전으로 올리면 해당 패키지의 취약점이 함께 해결됩니다.</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="text-[11px] text-faint flex-1">패키지 {groups.length}개 · 권장 버전으로 올리면 해당 패키지의 취약점이 함께 해결됩니다.</div>
+              <button className="btn-ghost !py-0.5 !px-2 !text-[11px]" title="이 저장소 전체 취약점 수정 프롬프트"
+                onClick={() => onPrompt({ title: `${repo} · 전체 취약점 수정 프롬프트`, text: buildRepoPrompt(repo, branch ?? "", groups) })}>
+                <Sparkles className="w-3 h-3" /> 전체 AI 프롬프트
+              </button>
+            </div>
             {groups.map((g) => {
               const sv = (SEV as any)[g.topSev] ?? SEV.UNKNOWN;
               const isOpen = open.has(g.key);
               return (
                 <div key={g.key} className="rounded-lg border border-border bg-surface/40">
-                  <button onClick={() => toggle(g.key)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-elevated/40 rounded-lg">
-                    <span className={`badge ${sv.cls} shrink-0`}>{sv.ko}</span>
-                    <span className="font-mono text-xs">{g.pkgName}</span>
-                    <span className="font-mono text-xs text-muted">{g.installedVersion}</span>
-                    <span className="text-faint text-xs">→</span>
-                    {g.rec ? <span className="font-mono text-xs text-success" title="이 버전 이상으로 올리면 해당 패키지 취약점이 해결됩니다">{g.rec}</span> : <span className="text-xs text-faint">수정본 없음</span>}
-                    <span className="text-faint text-[11px] ml-auto shrink-0">취약점 {g.vulns.length}건{g.unfixed ? ` · 미해결 ${g.unfixed}` : ""}</span>
-                    {isOpen ? <ChevronUp className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
-                  </button>
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <div className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer" onClick={() => toggle(g.key)}>
+                      <span className={`badge ${sv.cls} shrink-0`}>{sv.ko}</span>
+                      <span className="font-mono text-xs">{g.pkgName}</span>
+                      <span className="font-mono text-xs text-muted">{g.installedVersion}</span>
+                      <span className="text-faint text-xs">→</span>
+                      {g.rec ? <span className="font-mono text-xs text-success" title="이 버전 이상으로 올리면 해당 패키지 취약점이 해결됩니다">{g.rec}</span> : <span className="text-xs text-faint">수정본 없음</span>}
+                      <span className="text-faint text-[11px] ml-2 shrink-0">취약점 {g.vulns.length}건{g.unfixed ? ` · 미해결 ${g.unfixed}` : ""}</span>
+                    </div>
+                    <button className="btn-ghost !py-0.5 !px-2 !text-[11px] shrink-0" title="이 패키지 취약점 수정 프롬프트를 미리보기·복사"
+                      onClick={() => onPrompt({ title: `${g.pkgName} · 취약점 수정 프롬프트`, text: buildFixPrompt(repo, branch ?? "", g) })}>
+                      <Sparkles className="w-3 h-3" /> AI로 고치기
+                    </button>
+                    <button className="text-faint hover:text-fg shrink-0" onClick={() => toggle(g.key)} aria-label="펼치기">
+                      {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                   {isOpen && (
                     <div className="border-t border-border/60 px-3 py-2 space-y-1">
                       {g.vulns.map((v) => {
