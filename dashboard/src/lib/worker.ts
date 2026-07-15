@@ -42,6 +42,7 @@ export async function ragSearch(
 
 export interface SbomScanResult {
   commit: string;
+  branch: string;
   total: number;
   counts: { critical: number; high: number; medium: number; low: number; unknown: number };
   findings: {

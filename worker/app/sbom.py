@@ -31,19 +31,32 @@ def _redact(text: str, token: str) -> str:
     return (text or "").replace(token, "***") if token else (text or "")
 
 
+def _branch_exists(url: str, branch: str) -> bool:
+    try:
+        r = subprocess.run(["git", "ls-remote", "--heads", url, branch], capture_output=True, text=True, timeout=90)
+        return r.returncode == 0 and bool(r.stdout.strip())
+    except Exception:
+        return False
+
+
 def scan_repo(workspace: str, repo_slug: str, token: str, auth_username: str = "") -> dict:
     tmp = tempfile.mkdtemp(prefix="sbom_")
     try:
         url = _clone_url(workspace, repo_slug, token, auth_username)
-        clone = subprocess.run(
-            ["git", "clone", "--depth", "1", url, tmp],
-            capture_output=True, text=True, timeout=300,
-        )
+        # dev 브랜치가 있으면 우선 검사, 없으면 저장소 기본 브랜치
+        cmd = ["git", "clone", "--depth", "1"]
+        if _branch_exists(url, "dev"):
+            cmd += ["--branch", "dev"]
+        cmd += [url, tmp]
+        clone = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if clone.returncode != 0:
             raise RuntimeError(f"clone 실패: {_redact(clone.stderr, token)[-300:]}")
 
         commit = subprocess.run(
             ["git", "-C", tmp, "rev-parse", "HEAD"], capture_output=True, text=True,
+        ).stdout.strip()
+        branch = subprocess.run(
+            ["git", "-C", tmp, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True,
         ).stdout.strip()
 
         trivy = subprocess.run(
@@ -76,6 +89,6 @@ def scan_repo(workspace: str, repo_slug: str, token: str, auth_username: str = "
                     "title": (v.get("Title") or v.get("Description") or "")[:300],
                     "url": v.get("PrimaryURL", ""),
                 })
-        return {"commit": commit, "counts": counts, "total": sum(counts.values()), "findings": findings}
+        return {"commit": commit, "branch": branch, "counts": counts, "total": sum(counts.values()), "findings": findings}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

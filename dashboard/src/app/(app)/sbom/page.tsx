@@ -200,17 +200,23 @@ export default function SbomPage() {
             <thead className="text-muted text-left text-xs uppercase tracking-wide">
               <tr className="border-b border-border">
                 <th className="font-medium px-5 py-3">저장소</th>
+                <th className="font-medium px-3 py-3">브랜치</th>
                 <th className="font-medium px-3 py-3 text-center">치명</th><th className="font-medium px-3 py-3 text-center">높음</th>
                 <th className="font-medium px-3 py-3 text-center">중간</th><th className="font-medium px-3 py-3 text-center">낮음</th>
                 <th className="font-medium px-3 py-3">마지막 스캔</th><th className="font-medium px-3 py-3 text-center">상세</th>
               </tr>
             </thead>
             <tbody>
-              {repos.length === 0 && <tr><td colSpan={7} className="px-5 py-12 text-center text-faint"><ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-50" />검사할 저장소를 선택·저장하고 "지금 스캔"을 눌러보세요.</td></tr>}
+              {repos.length === 0 && <tr><td colSpan={8} className="px-5 py-12 text-center text-faint"><ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-50" />검사할 저장소를 선택·저장하고 "지금 스캔"을 눌러보세요.</td></tr>}
               {repos.map((r) => (
                 <Fragment key={r.repoSlug}>
                   <tr className={`table-row ${(r.critical ?? 0) > 0 ? "bg-danger/5" : ""}`}>
                     <td className="px-5 py-3 font-mono text-xs">{r.repoSlug}</td>
+                    <td className="px-3 py-3 font-mono text-xs whitespace-nowrap">
+                      {r.branch
+                        ? <span className={r.branch === "dev" ? "text-accent-2" : "text-muted"} title={r.branch === "dev" ? "dev 브랜치 우선 적용" : "기본 브랜치"}>{r.branch}</span>
+                        : <span className="text-faint">—</span>}
+                    </td>
                     {r.status === "none" ? (
                       <td colSpan={4} className="px-3 py-3 text-center text-faint text-xs">미스캔</td>
                     ) : r.status === "error" ? (
@@ -305,7 +311,7 @@ function FindingsRow({ repo }: { repo: string }) {
   const findings: any[] = data?.findings ?? [];
   return (
     <tr className="bg-elevated/30">
-      <td colSpan={7} className="px-5 pb-3 pt-0">
+      <td colSpan={8} className="px-5 pb-3 pt-0">
         {!data ? <div className="text-xs text-faint py-3">불러오는 중…</div> : findings.length === 0 ? (
           <div className="text-xs text-faint py-3">취약점이 없습니다.</div>
         ) : (

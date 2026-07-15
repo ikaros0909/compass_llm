@@ -21,7 +21,7 @@ export async function GET() {
     const s = latest.get(repoSlug);
     if (!s) return { repoSlug, status: "none" as const };
     return {
-      repoSlug, status: s.status, commit: s.commit,
+      repoSlug, status: s.status, commit: s.commit, branch: s.branch,
       critical: s.critical, high: s.high, medium: s.medium, low: s.low, unknown: s.unknown, total: s.total,
       at: s.createdAt, message: s.message,
     };

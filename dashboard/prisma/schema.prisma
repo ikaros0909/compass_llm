@@ -64,6 +64,7 @@ model SbomConfig {
 model SbomScan {
   id         BigInt   @id @default(autoincrement())
   repoSlug   String   @default("")
+  branch     String   @default("") // 실제 검사한 브랜치 (dev 우선, 없으면 기본 브랜치)
   commit     String   @default("")
   status     String   @default("ok") // ok | error
   critical   Int      @default(0)

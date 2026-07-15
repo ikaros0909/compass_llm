@@ -49,7 +49,7 @@ export async function runSbomScans(): Promise<{ scanned: number; errors: number;
           await prisma.$transaction([
             prisma.sbomScan.create({
               data: {
-                repoSlug, commit: res.commit, status: "ok",
+                repoSlug, commit: res.commit, branch: res.branch ?? "", status: "ok",
                 critical: c.critical, high: c.high, medium: c.medium, low: c.low, unknown: c.unknown,
                 total: res.total, durationMs: Date.now() - started,
               },
