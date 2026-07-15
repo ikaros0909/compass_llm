@@ -36,6 +36,25 @@ function vulnSource(id: string): { emoji: string; label: string } {
   return { emoji: "🔎", label: "출처: OSV — Google 주도의 오픈소스 취약점 데이터베이스(osv.dev)" };
 }
 
+const SEV_RANK: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, UNKNOWN: 0 };
+
+// 버전 비교(숫자 세그먼트 기준) — "3.4.11" > "3.4.7"
+function cmpVer(a: string, b: string): number {
+  const pa = a.split(/[.+-]/), pb = b.split(/[.+-]/);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = parseInt(pa[i] ?? "0", 10), y = parseInt(pb[i] ?? "0", 10);
+    if (Number.isNaN(x) || Number.isNaN(y)) return a < b ? -1 : a > b ? 1 : 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+// 여러 fixedVersion(쉼표 포함 가능) 중 가장 높은 버전 = 전부 해결하는 권장 업그레이드 버전
+function maxFix(list: string[]): string {
+  const toks = list.flatMap((f) => (f || "").split(/[,\s]+/).filter(Boolean));
+  if (!toks.length) return "";
+  return toks.reduce((m, v) => (cmpVer(v, m) > 0 ? v : m));
+}
+
 export default function SbomPage() {
   const { data, mutate } = useSWR("/api/admin/sbom", fetcher, {
     refreshInterval: (d: any) => (d?.scanning?.running ? 3000 : 15000), // 스캔 중엔 빠르게 갱신
@@ -309,48 +328,70 @@ function TrendCard({ repos }: { repos: any[] }) {
 function FindingsRow({ repo }: { repo: string }) {
   const { data } = useSWR(`/api/admin/sbom/findings?repo=${encodeURIComponent(repo)}`, fetcher);
   const findings: any[] = data?.findings ?? [];
+  const [open, setOpen] = useState<Set<string>>(new Set());
+
+  // 패키지(이름+현재버전+생태계)별로 묶고, 같은 취약점ID 는 1회만. 권장버전=최고 수정버전.
+  const map = new Map<string, { pkgName: string; installedVersion: string; ecosystem: string; vulns: Map<string, any> }>();
+  for (const f of findings) {
+    const key = `${f.pkgName} ${f.installedVersion} ${f.ecosystem}`;
+    if (!map.has(key)) map.set(key, { pkgName: f.pkgName, installedVersion: f.installedVersion, ecosystem: f.ecosystem, vulns: new Map() });
+    const g = map.get(key)!;
+    if (!g.vulns.has(f.vulnId)) g.vulns.set(f.vulnId, f);
+  }
+  const groups = [...map.entries()].map(([key, g]) => {
+    const vulns = [...g.vulns.values()].sort((a, b) => (SEV_RANK[b.severity] ?? 0) - (SEV_RANK[a.severity] ?? 0));
+    const rec = maxFix(vulns.map((v) => v.fixedVersion));
+    const unfixed = vulns.filter((v) => !v.fixedVersion).length;
+    const topSev = vulns.reduce((m, v) => ((SEV_RANK[v.severity] ?? 0) > (SEV_RANK[m] ?? 0) ? v.severity : m), "UNKNOWN");
+    return { key, ...g, vulns, rec, unfixed, topSev };
+  }).sort((a, b) => (SEV_RANK[b.topSev] ?? 0) - (SEV_RANK[a.topSev] ?? 0) || b.vulns.length - a.vulns.length);
+
+  const toggle = (k: string) => setOpen((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+
   return (
     <tr className="bg-elevated/30">
       <td colSpan={8} className="px-5 pb-3 pt-0">
-        {!data ? <div className="text-xs text-faint py-3">불러오는 중…</div> : findings.length === 0 ? (
+        {!data ? <div className="text-xs text-faint py-3">불러오는 중…</div> : groups.length === 0 ? (
           <div className="text-xs text-faint py-3">취약점이 없습니다.</div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-xs min-w-[42rem]">
-              <thead className="text-faint text-left"><tr className="border-b border-border">
-                <th className="px-3 py-2 font-medium">심각도</th><th className="px-3 py-2 font-medium">패키지</th>
-                <th className="px-3 py-2 font-medium">현재</th><th className="px-3 py-2 font-medium">수정 버전</th>
-                <th className="px-3 py-2 font-medium">취약점 · 출처</th><th className="px-3 py-2 font-medium">생태계</th>
-              </tr></thead>
-              <tbody>
-                {findings.map((f) => {
-                  const sv = (SEV as any)[f.severity] ?? SEV.UNKNOWN;
-                  return (
-                    <tr key={f.id} className="border-b border-border/50 last:border-0">
-                      <td className="px-3 py-2"><span className={`badge ${sv.cls}`}>{sv.ko}</span></td>
-                      <td className="px-3 py-2 font-mono">{f.pkgName}</td>
-                      <td className="px-3 py-2 text-muted font-mono">{f.installedVersion}</td>
-                      <td className="px-3 py-2 font-mono">{f.fixedVersion ? <span className="text-success">{f.fixedVersion}</span> : <span className="text-faint">없음</span>}</td>
-                      <td className="px-3 py-2">
-                        {(() => {
-                          const href = vulnLink(f.vulnId, f.url);
-                          const src = vulnSource(f.vulnId);
-                          return (
-                            <span className="inline-flex items-center gap-1.5">
-                              <span className="cursor-help select-none" title={src.label}>{src.emoji}</span>
-                              {href
-                                ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-2 hover:underline inline-flex items-center gap-1">{f.vulnId}<ExternalLink className="w-3 h-3" /></a>
-                                : f.vulnId}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-3 py-2 text-faint">{f.ecosystem}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="space-y-1.5 py-1">
+            <div className="text-[11px] text-faint">패키지 {groups.length}개 · 권장 버전으로 올리면 해당 패키지의 취약점이 함께 해결됩니다.</div>
+            {groups.map((g) => {
+              const sv = (SEV as any)[g.topSev] ?? SEV.UNKNOWN;
+              const isOpen = open.has(g.key);
+              return (
+                <div key={g.key} className="rounded-lg border border-border bg-surface/40">
+                  <button onClick={() => toggle(g.key)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-elevated/40 rounded-lg">
+                    <span className={`badge ${sv.cls} shrink-0`}>{sv.ko}</span>
+                    <span className="font-mono text-xs">{g.pkgName}</span>
+                    <span className="font-mono text-xs text-muted">{g.installedVersion}</span>
+                    <span className="text-faint text-xs">→</span>
+                    {g.rec ? <span className="font-mono text-xs text-success" title="이 버전 이상으로 올리면 해당 패키지 취약점이 해결됩니다">{g.rec}</span> : <span className="text-xs text-faint">수정본 없음</span>}
+                    <span className="text-faint text-[11px] ml-auto shrink-0">취약점 {g.vulns.length}건{g.unfixed ? ` · 미해결 ${g.unfixed}` : ""}</span>
+                    {isOpen ? <ChevronUp className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+                  </button>
+                  {isOpen && (
+                    <div className="border-t border-border/60 px-3 py-2 space-y-1">
+                      {g.vulns.map((v) => {
+                        const vv = (SEV as any)[v.severity] ?? SEV.UNKNOWN;
+                        const href = vulnLink(v.vulnId, v.url);
+                        const src = vulnSource(v.vulnId);
+                        return (
+                          <div key={v.vulnId} className="flex items-center gap-2 text-xs">
+                            <span className={`badge ${vv.cls} shrink-0`}>{vv.ko}</span>
+                            <span className="cursor-help select-none shrink-0" title={src.label}>{src.emoji}</span>
+                            {href
+                              ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-2 hover:underline inline-flex items-center gap-1">{v.vulnId}<ExternalLink className="w-3 h-3" /></a>
+                              : <span>{v.vulnId}</span>}
+                            <span className="text-faint ml-auto shrink-0">수정: {v.fixedVersion || "없음"}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </td>

@@ -69,10 +69,18 @@ def scan_repo(workspace: str, repo_slug: str, token: str, auth_username: str = "
         data = json.loads(trivy.stdout or "{}")
         counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}
         findings = []
+        seen = set()  # 같은 (패키지·버전·취약점ID) 는 여러 락파일에 나와도 1회만 집계
         for res in data.get("Results", []) or []:
             ecosystem = res.get("Type", "")
             target = res.get("Target", "")
             for v in (res.get("Vulnerabilities") or []):
+                pkg = v.get("PkgName", "")
+                iv = v.get("InstalledVersion", "")
+                vid = v.get("VulnerabilityID", "")
+                dedup_key = (pkg, iv, vid)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
                 sev = (v.get("Severity") or "UNKNOWN").upper()
                 key = sev.lower()
                 if key not in counts:
