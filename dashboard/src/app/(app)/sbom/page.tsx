@@ -20,6 +20,14 @@ function Count({ n, cls }: { n: number; cls: string }) {
   return <span className={`inline-block min-w-[1.75rem] px-1.5 py-0.5 rounded-md text-xs font-medium tabular-nums ${n > 0 ? cls : "text-faint"}`}>{n}</span>;
 }
 
+// 취약점 링크는 사기업(Aqua) 페이지 대신 공공/중립 출처로 연결.
+//  CVE→NVD(미국 NIST 정부) · GHSA→GitHub 어드바이저리 · 그 외→OSV(Google) 또는 원본 URL
+function vulnLink(id: string, fallback: string): string {
+  if (/^CVE-/i.test(id)) return `https://nvd.nist.gov/vuln/detail/${id}`;
+  if (/^GHSA-/i.test(id)) return `https://github.com/advisories/${id}`;
+  return fallback || (id ? `https://osv.dev/vulnerability/${id}` : "");
+}
+
 export default function SbomPage() {
   const { data, mutate } = useSWR("/api/admin/sbom", fetcher, {
     refreshInterval: (d: any) => (d?.scanning?.running ? 3000 : 15000), // 스캔 중엔 빠르게 갱신
@@ -248,7 +256,9 @@ function FindingsRow({ repo }: { repo: string }) {
                       <td className="px-3 py-2 text-muted font-mono">{f.installedVersion}</td>
                       <td className="px-3 py-2 font-mono">{f.fixedVersion ? <span className="text-success">{f.fixedVersion}</span> : <span className="text-faint">없음</span>}</td>
                       <td className="px-3 py-2">
-                        {f.url ? <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-accent-2 hover:underline inline-flex items-center gap-1">{f.vulnId}<ExternalLink className="w-3 h-3" /></a> : f.vulnId}
+                        {(() => { const href = vulnLink(f.vulnId, f.url); return href
+                          ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-2 hover:underline inline-flex items-center gap-1" title={/^CVE-/i.test(f.vulnId) ? "NVD(미국 NIST)에서 보기" : undefined}>{f.vulnId}<ExternalLink className="w-3 h-3" /></a>
+                          : f.vulnId; })()}
                       </td>
                       <td className="px-3 py-2 text-faint">{f.ecosystem}</td>
                     </tr>
