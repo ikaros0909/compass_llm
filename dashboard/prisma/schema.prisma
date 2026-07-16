@@ -145,6 +145,7 @@ model CodeReviewLog {
   prId       Int
   prTitle    String   @default("")
   prAuthor   String   @default("") // PR 요청자(display_name)
+  model      String   @default("") // 리뷰에 사용된 모델명
   headCommit String   @default("")
   diffHash   String   @default("") // 변경 내용(diff) 해시 — 커밋이 바뀌어도 코드가 같으면 재리뷰 안 함
   status     String   // posted | error

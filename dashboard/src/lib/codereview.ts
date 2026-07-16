@@ -392,7 +392,7 @@ async function reviewOnePr(cfg: CrConfig, repoSlug: string, pr: any, opts: { ski
 
         await prisma.codeReviewLog.create({
           data: {
-            repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, diffHash,
+            repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, model: cfg.model, headCommit: head, diffHash,
             status: "posted", approval, message: review.slice(0, MAX_STORED_REVIEW), commentId: String(pj.id ?? ""),
             qualityScore: quality, riskLevel: risk, confidence, needsReview, reviewReasons: JSON.stringify(reasons),
             advisories: JSON.stringify(advisories), filesChanged: stats.files, linesChanged,
@@ -402,7 +402,7 @@ async function reviewOnePr(cfg: CrConfig, repoSlug: string, pr: any, opts: { ski
         return { outcome: "reviewed", detail: `[${repoSlug}] #${pr.id} 리뷰 게시${approveDetail}` };
       } catch (e: any) {
         await prisma.codeReviewLog.create({
-          data: { repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, status: "error", message: (e?.message ?? "오류").slice(0, 500) },
+          data: { repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, model: cfg.model, headCommit: head, status: "error", message: (e?.message ?? "오류").slice(0, 500) },
         }).catch(() => {});
         return { outcome: "error", detail: `[${repoSlug}] #${pr.id} 오류: ${e?.message ?? ""}` };
       }

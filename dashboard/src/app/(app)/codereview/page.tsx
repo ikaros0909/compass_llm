@@ -255,7 +255,7 @@ export default function CodeReviewPage() {
             <tr className="border-b border-border">
               <th className="font-medium px-5 py-3">시각</th><th className="font-medium px-3 py-3">저장소</th><th className="font-medium px-3 py-3">PR</th>
               <th className="font-medium px-3 py-3">요청자</th>
-              <th className="font-medium px-3 py-3">커밋</th><th className="font-medium px-3 py-3 text-center whitespace-nowrap">상태</th>
+              <th className="font-medium px-3 py-3">커밋</th><th className="font-medium px-3 py-3 whitespace-nowrap">모델</th>
               <th className="font-medium px-3 py-3 text-center whitespace-nowrap">승인</th>
               <th className="font-medium px-3 py-3 whitespace-nowrap">품질</th>
               <th className="font-medium px-3 py-3 text-center whitespace-nowrap">메모 · 재실행</th>
@@ -284,8 +284,10 @@ export default function CodeReviewPage() {
                     : <span className="text-faint">—</span>}
                 </td>
                 <td className="px-3 py-3 font-mono text-xs text-faint">{l.headCommit?.slice(0, 8)}</td>
-                <td className="px-3 py-3 text-center">
-                  <span title={l.status === "posted" ? "게시됨" : "오류"} className="text-base cursor-default select-none">{l.status === "posted" ? "✅" : "❌"}</span>
+                <td className="px-3 py-3 text-xs whitespace-nowrap">
+                  {l.status === "error"
+                    ? <span className="text-danger" title={l.message || "리뷰 오류"}>❌ 오류</span>
+                    : <span className="font-mono text-muted inline-block max-w-[11rem] truncate align-middle" title={l.model || undefined}>{l.model || "—"}</span>}
                 </td>
                 <td className="px-3 py-3 text-center">
                   {(() => {
