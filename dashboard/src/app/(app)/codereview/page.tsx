@@ -42,6 +42,7 @@ export default function CodeReviewPage() {
   const [sortBy, setSortBy] = useState<"recent" | "risk">("recent");
   const [onlyReview, setOnlyReview] = useState(false);
   const [rerunId, setRerunId] = useState("");
+  const [showSettings, setShowSettings] = useState(false); // 설정 섹션 접힘 기본
 
   async function rerun(l: any) {
     const msg = `#${l.prId} PR을 다시 리뷰합니다.\n\n· 기존 자동리뷰 코멘트를 삭제합니다.` +
@@ -138,7 +139,14 @@ export default function CodeReviewPage() {
         <span className={`badge ${form.enabled ? "badge-on" : "badge-off"}`}>{form.enabled ? "자동 리뷰 켜짐" : "꺼짐"}</span>
       </PageHeader>
 
-      <div className="grid lg:grid-cols-2 gap-4">
+      <button onClick={() => setShowSettings((s) => !s)}
+        className="card card-hover !py-3 w-full flex items-center gap-2 text-sm font-medium text-left">
+        <GitPullRequest className="w-4 h-4 text-accent-2" /> 코드리뷰 설정
+        <span className="ml-auto text-faint text-xs font-normal">{showSettings ? "접기" : "펼치기"}</span>
+        {showSettings ? <ChevronUp className="w-4 h-4 text-faint" /> : <ChevronDown className="w-4 h-4 text-faint" />}
+      </button>
+      {showSettings && (
+      <div className="grid lg:grid-cols-2 gap-4 mt-4">
         {/* 설정: workspace + 토큰 → 저장소 불러오기 → 선택 */}
         <div className="card space-y-3">
           <div className="text-sm font-medium flex items-center gap-2"><GitPullRequest className="w-4 h-4 text-accent-2" /> Bitbucket Cloud 연결</div>
@@ -238,6 +246,7 @@ export default function CodeReviewPage() {
           </div>
         </div>
       </div>
+      )}
 
       {runMsg && <div className="card mt-4 text-xs whitespace-pre-wrap text-muted flex gap-2"><Info className="w-4 h-4 text-info shrink-0" />{runMsg}</div>}
 

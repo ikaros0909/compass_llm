@@ -136,6 +136,7 @@ export default function SbomPage() {
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [dirty, setDirty] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
+  const [showSettings, setShowSettings] = useState(false); // 설정 섹션 접힘 기본
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [promptModal, setPromptModal] = useState<{ title: string; text: string } | null>(null);
   const [repoList, setRepoList] = useState<{ slug: string; name: string }[]>([]);
@@ -226,9 +227,15 @@ export default function SbomPage() {
         </div>
       )}
 
-      {/* 설정 */}
-      <div className="card space-y-3">
-        <div className="text-sm font-medium flex items-center gap-2"><PackageSearch className="w-4 h-4 text-accent-2" /> 스캔 설정</div>
+      {/* 설정 (기본 접힘) */}
+      <div className="card">
+        <button onClick={() => setShowSettings((s) => !s)} className="w-full flex items-center gap-2 text-sm font-medium text-left">
+          <PackageSearch className="w-4 h-4 text-accent-2" /> 스캔 설정
+          <span className="ml-auto text-faint text-xs font-normal">{showSettings ? "접기" : "펼치기"}</span>
+          {showSettings ? <ChevronUp className="w-4 h-4 text-faint" /> : <ChevronDown className="w-4 h-4 text-faint" />}
+        </button>
+        {showSettings && (
+        <div className="space-y-3 mt-3">
         <div className="grid sm:grid-cols-2 gap-3">
           <div><label className="label">Workspace</label><input className="input" placeholder="비우면 코드리뷰 설정 재사용" value={form.workspace} onChange={(e) => up("workspace", e.target.value)} /></div>
           <div>
@@ -284,6 +291,8 @@ export default function SbomPage() {
           ) : dirty ? <span className="text-xs flex items-center gap-1 text-warn"><span className="w-1.5 h-1.5 rounded-full bg-warn inline-block" /> 저장되지 않은 변경사항 (저장해야 스캔에 반영)</span> : null}
         </div>
         {scanMsg && <p className="text-xs text-muted">{scanMsg}</p>}
+        </div>
+        )}
       </div>
 
       {/* 취약점 추이 */}
