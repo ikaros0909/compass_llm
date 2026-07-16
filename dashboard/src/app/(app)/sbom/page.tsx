@@ -185,6 +185,14 @@ export default function SbomPage() {
     else setScanMsg((await r.json().catch(() => ({}))).error || "스캔 시작 실패");
     setBusy(""); mutate();
   }
+  async function scanOne(repo: string) {
+    setScanMsg("");
+    const r = await fetch("/api/admin/sbom/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repo }) });
+    if (r.ok) setScanMsg(`'${repo}' 저장소만 스캔을 시작했습니다. 결과는 자동 갱신됩니다.`);
+    else if (r.status === 401 || r.status === 403) setScanMsg("세션이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.");
+    else setScanMsg((await r.json().catch(() => ({}))).error || "스캔 시작 실패");
+    mutate();
+  }
   function toggle(repo: string) { setOpen((s) => { const n = new Set(s); n.has(repo) ? n.delete(repo) : n.add(repo); return n; }); }
 
   const repos: any[] = data?.repos ?? [];
@@ -300,7 +308,15 @@ export default function SbomPage() {
               {repos.map((r) => (
                 <Fragment key={r.repoSlug}>
                   <tr className={`table-row ${(r.critical ?? 0) > 0 ? "bg-danger/5" : ""}`}>
-                    <td className="px-5 py-3 font-mono text-xs">{r.repoSlug}</td>
+                    <td className="px-5 py-3 font-mono text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={() => scanOne(r.repoSlug)} disabled={scanning.running}
+                          title="이 저장소만 스캔" className="text-faint hover:text-accent-2 disabled:opacity-40 shrink-0">
+                          {scanning.running && scanning.current === r.repoSlug ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ScanLine className="w-3.5 h-3.5" />}
+                        </button>
+                        <span>{r.repoSlug}</span>
+                      </div>
+                    </td>
                     <td className="px-3 py-3 font-mono text-xs whitespace-nowrap">
                       {r.branch
                         ? <span className={r.branch === "dev" ? "text-accent-2" : "text-muted"} title={r.branch === "dev" ? "dev 브랜치 우선 적용" : "기본 브랜치"}>{r.branch}</span>

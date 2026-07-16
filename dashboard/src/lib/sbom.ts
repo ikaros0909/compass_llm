@@ -22,7 +22,8 @@ export function scanProgress() {
   return progress;
 }
 
-export async function runSbomScans(): Promise<{ scanned: number; errors: number; details: string[] }> {
+// only 를 주면 그 저장소 하나만 스캔, 없으면 설정된 전체 저장소 스캔.
+export async function runSbomScans(only?: string): Promise<{ scanned: number; errors: number; details: string[] }> {
   if (scanRunning) return { scanned: 0, errors: 0, details: ["이미 스캔이 진행 중입니다."] };
   scanRunning = true;
   const out = { scanned: 0, errors: 0, details: [] as string[] };
@@ -35,9 +36,11 @@ export async function runSbomScans(): Promise<{ scanned: number; errors: number;
       return out;
     }
 
+    // 단일 저장소 스캔이면 그 저장소만, 아니면 전체
+    const scanRepos = only ? [only] : repos;
     // 동시성 제한(2) 으로 순차 과부하 방지
-    progress = { running: true, total: repos.length, done: 0, current: "", startedAt: Date.now() };
-    const queue = [...repos];
+    progress = { running: true, total: scanRepos.length, done: 0, current: "", startedAt: Date.now() };
+    const queue = [...scanRepos];
     const workers = Array.from({ length: Math.min(2, queue.length) }, async () => {
       while (queue.length) {
         const repoSlug = queue.shift()!;
