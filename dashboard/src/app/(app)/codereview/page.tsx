@@ -4,8 +4,9 @@ import { Fragment, useEffect, useState } from "react";
 import { fetcher } from "@/lib/fetcher";
 import PageHeader from "@/components/PageHeader";
 import {
-  GitPullRequest, Save, Play, CheckCircle2, XCircle, Loader2, Info, ChevronDown, ChevronUp, FolderSearch, User, RotateCcw,
+  GitPullRequest, Save, Play, CheckCircle2, XCircle, Loader2, Info, ChevronDown, ChevronUp, FolderSearch, User, RotateCcw, TrendingUp,
 } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 // 시각 압축: 년·초 생략 → "M/D HH:mm" (전체 값은 툴팁으로)
 function fmtTime(at: string): string {
@@ -240,6 +241,9 @@ export default function CodeReviewPage() {
 
       {runMsg && <div className="card mt-4 text-xs whitespace-pre-wrap text-muted flex gap-2"><Info className="w-4 h-4 text-info shrink-0" />{runMsg}</div>}
 
+      {/* 날짜별 코드리뷰 수 추이 */}
+      <div className="mt-4"><ReviewTrendCard /></div>
+
       {/* 리뷰 이력 */}
       <div className="card !p-0 overflow-hidden mt-4">
         <div className="px-5 py-3 border-b border-border flex items-center gap-3 flex-wrap">
@@ -377,6 +381,47 @@ export default function CodeReviewPage() {
           </tbody>
         </table>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ReviewTrendCard() {
+  const [days, setDays] = useState(30);
+  const { data } = useSWR(`/api/admin/codereview/trend?days=${days}`, fetcher, { refreshInterval: 60000 });
+  const series: any[] = data?.series ?? [];
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4 text-accent-2" /> 코드리뷰 추이</div>
+        <select className="input !w-auto !py-1 !text-xs cursor-pointer" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={7}>최근 7일</option><option value={30}>최근 30일</option><option value={90}>최근 90일</option>
+        </select>
+      </div>
+      {series.length < 2 ? (
+        <div className="text-xs text-faint py-10 text-center">
+          {series.length === 0 ? "리뷰 이력이 없습니다." : "데이터가 하루치뿐입니다."} 리뷰가 쌓이면 날짜별 추이가 그래프로 표시됩니다.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={series} margin={{ left: -12, right: 8, top: 4 }}>
+            <CartesianGrid stroke="#222c3d" vertical={false} />
+            <XAxis dataKey="date" stroke="#5a6678" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(d) => String(d).slice(5)} minTickGap={24} />
+            <YAxis stroke="#5a6678" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} width={34} />
+            <Tooltip contentStyle={{ background: "#131926", border: "1px solid #222c3d", borderRadius: 12, fontSize: 12 }} labelStyle={{ color: "#8a97ad" }} />
+            <Line type="monotone" dataKey="reviews" name="리뷰" stroke="#818cf8" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="approved" name="자동승인" stroke="#22c55e" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="needsReview" name="재검토 권장" stroke="#f59e0b" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="errors" name="오류" stroke="#f43f5e" strokeWidth={2} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+      <div className="flex items-center gap-3 flex-wrap mt-1 text-[11px] text-muted">
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#818cf8" }} />리뷰</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-success inline-block" />자동승인</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-warn inline-block" />재검토 권장</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-danger inline-block" />오류</span>
       </div>
     </div>
   );
