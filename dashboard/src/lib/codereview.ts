@@ -216,18 +216,38 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
 
     for (const pr of prs) {
       const head: string = pr.source?.commit?.hash ?? "";
-      const author: string = pr.author?.display_name ?? pr.author?.nickname ?? "";
-      // 1) 같은 커밋을 이미 리뷰했으면 즉시 스킵 (diff 조회 불필요 — 빠른 경로)
+      // 같은 커밋을 이미 리뷰했으면 즉시 스킵 (diff 조회 불필요 — 빠른 경로)
       const byCommit = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId: pr.id, headCommit: head, status: "posted" } });
       if (byCommit) { out.skipped++; continue; }
+      const r = await reviewOnePr(cfg, repoSlug, pr, { skipSameDiff: true });
+      if (r.outcome === "reviewed") out.reviewed++;
+      else if (r.outcome === "skipped") out.skipped++;
+      else out.errors++;
+      if (r.detail) out.details.push(r.detail);
+    }
+  }
+  return out;
+}
+
+type PrReviewResult = { outcome: "reviewed" | "skipped" | "error"; detail: string };
+type CrConfig = NonNullable<Awaited<ReturnType<typeof prisma.codeReviewConfig.findUnique>>>;
+
+// 단일 PR 리뷰 (자동 폴러·수동 재실행 공용). skipSameDiff=true 면 동일 diff 는 재리뷰 생략.
+async function reviewOnePr(cfg: CrConfig, repoSlug: string, pr: any, opts: { skipSameDiff: boolean }): Promise<PrReviewResult> {
+  const head: string = pr.source?.commit?.hash ?? "";
+  const author: string = pr.author?.display_name ?? pr.author?.nickname ?? "";
+  {
+    {
       try {
         const diffRes = await bbRepo(cfg, repoSlug, `/pullrequests/${pr.id}/diff`);
         if (!diffRes.ok) throw new Error(`diff ${diffRes.status}`);
         const fullDiff = await diffRes.text();
         const diffHash = sha256(fullDiff);
-        // 2) 커밋 해시는 달라졌지만 실제 변경 내용(diff)이 동일하면 스킵 (리베이스·머지·CI 봇 커밋 등으로 코드는 그대로)
-        const byDiff = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId: pr.id, diffHash, status: "posted" } });
-        if (byDiff) { out.skipped++; out.details.push(`[${repoSlug}] #${pr.id} 코드 변경 없음 — 재리뷰 생략(커밋만 변경)`); continue; }
+        // 동일 diff 재리뷰 생략(폴러 전용) — 수동 재실행 시엔 강제 재리뷰
+        if (opts.skipSameDiff) {
+          const byDiff = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId: pr.id, diffHash, status: "posted" } });
+          if (byDiff) return { outcome: "skipped", detail: `[${repoSlug}] #${pr.id} 코드 변경 없음 — 재리뷰 생략(커밋만 변경)` };
+        }
         // 판정 범위(변경분만) — 리뷰·검증 공통
         const SCOPE_RULES =
           `\n\n[매우 중요 — 판정 범위]\n` +
@@ -379,17 +399,44 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
           },
         });
         const approveDetail = !cfg.autoApprove ? "" : (approve ? (approveOk ? " · ✅ 승인" : " · ⚠ 승인실패") : " · 변경요청");
-        out.reviewed++; out.details.push(`[${repoSlug}] #${pr.id} 리뷰 게시${approveDetail}`);
+        return { outcome: "reviewed", detail: `[${repoSlug}] #${pr.id} 리뷰 게시${approveDetail}` };
       } catch (e: any) {
-        out.errors++;
         await prisma.codeReviewLog.create({
           data: { repoSlug, prId: pr.id, prTitle: pr.title, prAuthor: author, headCommit: head, status: "error", message: (e?.message ?? "오류").slice(0, 500) },
         }).catch(() => {});
-        out.details.push(`[${repoSlug}] #${pr.id} 오류: ${e?.message ?? ""}`);
+        return { outcome: "error", detail: `[${repoSlug}] #${pr.id} 오류: ${e?.message ?? ""}` };
       }
     }
   }
-  return out;
+}
+
+// 특정 PR 만 강제 재리뷰: 기존 봇 코멘트 삭제 + (자동승인됐다면) 승인 취소 + 재리뷰.
+export async function rerunReview(repoSlug: string, prId: number): Promise<{ ok: boolean; message: string }> {
+  if (reviewRunning) return { ok: false, message: "다른 리뷰가 진행 중입니다. 잠시 후 다시 시도하세요." };
+  reviewRunning = true;
+  try {
+    const cfg = await prisma.codeReviewConfig.findUnique({ where: { id: "default" } });
+    if (!cfg || !cfg.workspace || !cfg.token || !cfg.model) return { ok: false, message: "코드리뷰 설정이 완료되지 않았습니다." };
+    const prRes = await bbRepo(cfg, repoSlug, `/pullrequests/${prId}`);
+    if (!prRes.ok) return { ok: false, message: `PR 조회 실패 (${prRes.status})` };
+    const pr = await prRes.json();
+    if (String(pr.state) !== "OPEN") return { ok: false, message: `열린 PR 이 아닙니다 (상태: ${pr.state}). 재리뷰는 OPEN 상태에서만 가능합니다.` };
+
+    // 이 PR 에 봇이 남긴 기존 코멘트 삭제
+    const priorLogs = await prisma.codeReviewLog.findMany({ where: { repoSlug, prId, status: "posted" } });
+    for (const log of priorLogs) {
+      if (log.commentId) await bbRepo(cfg, repoSlug, `/pullrequests/${prId}/comments/${log.commentId}`, { method: "DELETE" }).catch(() => {});
+    }
+    // 이전에 자동 승인했다면 승인 취소
+    const wasApproved = priorLogs.some((l) => l.approval === "approved");
+    if (wasApproved) await bbRepo(cfg, repoSlug, `/pullrequests/${prId}/approve`, { method: "DELETE" }).catch(() => {});
+    // 이 PR 의 기존 이력 삭제 후 강제 재리뷰(스킵 없음)
+    await prisma.codeReviewLog.deleteMany({ where: { repoSlug, prId } });
+    const r = await reviewOnePr(cfg, repoSlug, pr, { skipSameDiff: false });
+    return { ok: r.outcome !== "error", message: r.detail + (wasApproved ? " · 이전 승인 취소됨" : "") };
+  } finally {
+    reviewRunning = false;
+  }
 }
 
 // 주기 폴러: 매 분 체크하고, 설정된 intervalMin 간격으로만 실제 실행

@@ -4,7 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import { fetcher } from "@/lib/fetcher";
 import PageHeader from "@/components/PageHeader";
 import {
-  GitPullRequest, Save, Play, CheckCircle2, XCircle, Loader2, Info, ChevronDown, ChevronUp, FolderSearch, User,
+  GitPullRequest, Save, Play, CheckCircle2, XCircle, Loader2, Info, ChevronDown, ChevronUp, FolderSearch, User, RotateCcw,
 } from "lucide-react";
 
 export default function CodeReviewPage() {
@@ -33,6 +33,25 @@ export default function CodeReviewPage() {
     });
   const [sortBy, setSortBy] = useState<"recent" | "risk">("recent");
   const [onlyReview, setOnlyReview] = useState(false);
+  const [rerunId, setRerunId] = useState("");
+
+  async function rerun(l: any) {
+    const msg = `#${l.prId} PR을 다시 리뷰합니다.\n\n· 기존 자동리뷰 코멘트를 삭제합니다.` +
+      (l.approval === "approved" ? "\n· 이전 자동 승인을 취소합니다." : "") +
+      `\n\n계속할까요?`;
+    if (!confirm(msg)) return;
+    setRerunId(l.id);
+    try {
+      const r = await fetch("/api/admin/codereview/rerun", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoSlug: l.repoSlug, prId: l.prId }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401 || r.status === 403) alert("세션이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.");
+      else if (!j.ok) alert(j.message || "재실행 실패");
+    } catch { alert("네트워크 오류로 재실행하지 못했습니다."); }
+    finally { setRerunId(""); mutate(); }
+  }
 
   // 최초 로드시 서버 값으로 폼 초기화 (token 은 서버에 있으면 빈칸 유지)
   useEffect(() => {
@@ -239,7 +258,7 @@ export default function CodeReviewPage() {
               <th className="font-medium px-3 py-3">커밋</th><th className="font-medium px-3 py-3 text-center whitespace-nowrap">상태</th>
               <th className="font-medium px-3 py-3 text-center whitespace-nowrap">승인</th>
               <th className="font-medium px-3 py-3 whitespace-nowrap">품질</th>
-              <th className="font-medium px-3 py-3 text-center whitespace-nowrap">메모</th>
+              <th className="font-medium px-3 py-3 text-center whitespace-nowrap">메모 · 재실행</th>
             </tr>
           </thead>
           <tbody>
@@ -302,6 +321,11 @@ export default function CodeReviewPage() {
                     <span className="ml-1 text-info text-xs align-middle cursor-default"
                       title={`기존 코드 참고 권고 ${l.advisories.length}건 (이번 PR 과 무관 · 승인·품질에 미반영)`}>💡{l.advisories.length}</span>
                   )}
+                  <button onClick={() => rerun(l)} disabled={!!rerunId}
+                    title="이 PR 다시 리뷰 — 기존 코멘트 삭제 + (승인됐다면) 승인 취소 후 재리뷰"
+                    className="ml-1.5 align-middle text-faint hover:text-accent-2 disabled:opacity-40 transition-colors">
+                    {rerunId === l.id ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : <RotateCcw className="w-3.5 h-3.5 inline" />}
+                  </button>
                 </td>
               </tr>
               {open && (l.message || l.reviewReasons?.length > 0 || l.advisories?.length > 0) && (
