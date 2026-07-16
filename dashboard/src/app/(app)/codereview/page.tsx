@@ -7,6 +7,7 @@ import {
   GitPullRequest, Save, Play, CheckCircle2, XCircle, Loader2, Info, ChevronDown, ChevronUp, FolderSearch, User, RotateCcw, TrendingUp,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import MultiSelect from "@/components/MultiSelect";
 
 // 시각 압축: 년·초 생략 → "M/D HH:mm" (전체 값은 툴팁으로)
 function fmtTime(at: string): string {
@@ -397,16 +398,22 @@ export default function CodeReviewPage() {
 
 function ReviewTrendCard() {
   const [days, setDays] = useState(30);
-  const { data } = useSWR(`/api/admin/codereview/trend?days=${days}`, fetcher, { refreshInterval: 60000 });
+  const [authors, setAuthors] = useState<string[]>([]);
+  const q = `/api/admin/codereview/trend?days=${days}` + (authors.length ? `&authors=${encodeURIComponent(authors.join(","))}` : "");
+  const { data } = useSWR(q, fetcher, { refreshInterval: 60000 });
   const series: any[] = data?.series ?? [];
+  const allAuthors: string[] = data?.allAuthors ?? [];
 
   return (
     <div className="card">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4 text-accent-2" /> 코드리뷰 추이</div>
-        <select className="input !w-auto !py-1 !text-xs cursor-pointer" value={days} onChange={(e) => setDays(Number(e.target.value))}>
-          <option value={7}>최근 7일</option><option value={30}>최근 30일</option><option value={90}>최근 90일</option>
-        </select>
+        <div className="flex items-center gap-2 flex-wrap">
+          <MultiSelect label="요청자" options={allAuthors.map((a) => ({ value: a, label: a }))} selected={authors} onChange={setAuthors} />
+          <select className="input !w-auto !py-1 !text-xs cursor-pointer" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            <option value={7}>최근 7일</option><option value={30}>최근 30일</option><option value={90}>최근 90일</option>
+          </select>
+        </div>
       </div>
       {series.length < 2 ? (
         <div className="text-xs text-faint py-10 text-center">

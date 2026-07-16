@@ -8,6 +8,7 @@ import {
   TriangleAlert, ExternalLink, PackageSearch, RefreshCw, TrendingUp, Sparkles, Copy, Check, X,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import MultiSelect from "@/components/MultiSelect";
 
 const SEV = {
   CRITICAL: { ko: "치명", cls: "bg-danger/15 text-danger" },
@@ -365,9 +366,10 @@ export default function SbomPage() {
 }
 
 function TrendCard({ repos }: { repos: any[] }) {
-  const [repo, setRepo] = useState("all");
+  const [sel, setSel] = useState<string[]>([]);
   const [days, setDays] = useState(30);
-  const { data } = useSWR(`/api/admin/sbom/trend?repo=${encodeURIComponent(repo)}&days=${days}`, fetcher, { refreshInterval: 60000 });
+  const q = `/api/admin/sbom/trend?days=${days}` + (sel.length ? `&repos=${encodeURIComponent(sel.join(","))}` : "");
+  const { data } = useSWR(q, fetcher, { refreshInterval: 60000 });
   const series: any[] = data?.series ?? [];
   const last = series[series.length - 1];
   const prev = series[series.length - 2];
@@ -384,11 +386,8 @@ function TrendCard({ repos }: { repos: any[] }) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <select className="input !w-auto !py-1 !text-xs cursor-pointer" value={repo} onChange={(e) => setRepo(e.target.value)}>
-            <option value="all">전체 합계</option>
-            {repos.map((r) => <option key={r.repoSlug} value={r.repoSlug}>{r.repoSlug}</option>)}
-          </select>
+        <div className="flex items-center gap-2 flex-wrap">
+          <MultiSelect label="저장소" allLabel="전체 합계" options={repos.map((r) => ({ value: r.repoSlug, label: r.repoSlug }))} selected={sel} onChange={setSel} />
           <select className="input !w-auto !py-1 !text-xs cursor-pointer" value={days} onChange={(e) => setDays(Number(e.target.value))}>
             <option value={7}>최근 7일</option><option value={30}>최근 30일</option><option value={90}>최근 90일</option>
           </select>

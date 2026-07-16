@@ -6,12 +6,16 @@ import { prisma } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const repo = req.nextUrl.searchParams.get("repo") || "all";
   const days = Math.min(365, Math.max(7, Number(req.nextUrl.searchParams.get("days")) || 30));
   const since = new Date(Date.now() - days * 86_400_000);
+  // repos=콤마목록(다중 선택). 하위호환: repo=단일(all 이면 전체)
+  const reposFilter = (req.nextUrl.searchParams.get("repos") || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const single = req.nextUrl.searchParams.get("repo");
+  const repoWhere = reposFilter.length ? { repoSlug: { in: reposFilter } }
+    : single && single !== "all" ? { repoSlug: single } : {};
 
   const scans = await prisma.sbomScan.findMany({
-    where: { createdAt: { gte: since }, status: "ok", ...(repo !== "all" ? { repoSlug: repo } : {}) },
+    where: { createdAt: { gte: since }, status: "ok", ...repoWhere },
     orderBy: { createdAt: "asc" },
     select: { repoSlug: true, critical: true, high: true, medium: true, low: true, total: true, createdAt: true },
   });
