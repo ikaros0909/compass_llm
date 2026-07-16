@@ -309,10 +309,11 @@ export default function SbomPage() {
                 <Fragment key={r.repoSlug}>
                   <tr className={`table-row ${(r.critical ?? 0) > 0 ? "bg-danger/5" : ""}`}>
                     <td className="px-5 py-3 font-mono text-xs">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         <button onClick={() => scanOne(r.repoSlug)} disabled={scanning.running}
-                          title="이 저장소만 스캔" className="text-faint hover:text-accent-2 disabled:opacity-40 shrink-0">
-                          {scanning.running && scanning.current === r.repoSlug ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ScanLine className="w-3.5 h-3.5" />}
+                          title="이 저장소만 스캔"
+                          className="grid place-items-center w-7 h-7 rounded-md text-accent-2 ring-1 ring-border bg-elevated/40 hover:bg-accent/15 hover:ring-accent/40 disabled:opacity-40 shrink-0 transition-colors">
+                          {scanning.running && scanning.current === r.repoSlug ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
                         </button>
                         <span>{r.repoSlug}</span>
                       </div>
