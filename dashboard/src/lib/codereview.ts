@@ -61,11 +61,13 @@ export async function listRepos(cfg: { workspace: string; authUsername: string; 
 
 const MAX_DIFF = 32000; // 한 번의 모델 호출에 넣는 diff 최대 길이(조각 크기, 문자) ≈ 1만 토큰
 const MAX_CHUNKS = 10; // 대용량 diff 분할 리뷰 시 최대 조각 수 (10 × 32000 ≈ 320KB 커버)
+const VERIFY_MAX_DIFF = 12000; // 검증(2차) 패스 diff 입력 상한 — 출력(리뷰+[[META]]) 공간 확보용
 // 코드리뷰 호출의 컨텍스트 창을 명시(버전 무관 결정적 동작 + 잘림 방지).
 // RTX 3090(24GB)+gemma4:31b 기준 16384 는 100% GPU 로드가 유지되는 안전값(실측).
 const REVIEW_NUM_CTX = 16384;
-// diff + 컨텍스트 보강 파일내용의 합계 문자 예산(num_ctx 안에 출력 여유까지 두는 상한)
-const REVIEW_CTX_CHARS = 40000;
+// diff + 컨텍스트 보강 파일내용의 합계 문자 예산.
+// num_ctx(16384) 안에 리뷰+[[META]] 출력 공간(~5K토큰)을 남기도록 보수적으로 설정.
+const REVIEW_CTX_CHARS = 30000;
 const MAX_STORED_REVIEW = 20000; // 이력에 저장할 리뷰 본문 최대 길이(펼쳐보기용 — 사실상 전문)
 
 // 대용량 diff 를 파일(diff --git) 경계에서 여러 조각으로 분할.
@@ -287,12 +289,15 @@ async function runReviewInner(): Promise<{ reviewed: number; skipped: number; er
           "- 확실한 버그·보안·명백한 결함만 '## 주요 지적'에 남기고, 경미하거나 확신이 낮은 항목은 '## 참고(낮은 확신)' 로 분리하세요. 남길 게 없으면 '중대한 문제 없음'으로 간결히 쓰세요.\n" +
           "- 잘한 점 한두 줄과 한 줄 총평을 포함하세요." +
           SCOPE_RULES + PRECISION_RULES + metaTail(cfg.autoApprove);
+        // 검증 입력은 작게 유지해 출력(리뷰+[[META]]) 공간을 충분히 확보한다.
+        // (입력이 num_ctx 를 거의 채우면 응답이 [[META]] 전에 잘려 품질점수·뒷부분이 유실됨)
         const verified = await chatComplete(cfg.model, [
           { role: "system", content: verifySys },
-          { role: "user", content: `[1차 리뷰]\n${draft}\n\n[실제 변경 diff]\n${fullDiff.slice(0, MAX_DIFF)}` },
+          { role: "user", content: `[1차 리뷰]\n${draft.slice(0, 6000)}\n\n[실제 변경 diff]\n${fullDiff.slice(0, VERIFY_MAX_DIFF)}` },
         ], { temperature: 0.1, num_ctx: REVIEW_NUM_CTX });
-        // 검증 결과가 비정상적으로 짧으면(실패) 1차 리뷰를 그대로 사용
-        review = verified.trim().length > 40 ? verified : review;
+        // 검증 결과가 비었거나(짧음) 잘려서 [[META]] 가 없으면(품질·뒷부분 유실) 1차 리뷰로 폴백
+        const verifiedOk = verified.trim().length > 40 && verified.includes("[[META]]");
+        review = verifiedOk ? verified : review;
 
         // 모델의 승인 의견(VERDICT) — 실제 자동승인은 아래 게이트를 함께 통과해야 함
         const approveVerdict = cfg.autoApprove && /\[VERDICT:\s*APPROVE\]/i.test(review);
