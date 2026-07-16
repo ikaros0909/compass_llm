@@ -410,30 +410,47 @@ async function reviewOnePr(cfg: CrConfig, repoSlug: string, pr: any, opts: { ski
   }
 }
 
-// 특정 PR 만 강제 재리뷰: 기존 봇 코멘트 삭제 + (자동승인됐다면) 승인 취소 + 재리뷰.
+// 특정 PR 만 강제 재리뷰. 안전 순서: 먼저 재리뷰(새 코멘트 게시)에 성공한 뒤에야
+// 기존 코멘트/이력을 삭제한다 → 실패해도 기존 리뷰가 사라지지 않는다.
 export async function rerunReview(repoSlug: string, prId: number): Promise<{ ok: boolean; message: string }> {
   if (reviewRunning) return { ok: false, message: "다른 리뷰가 진행 중입니다. 잠시 후 다시 시도하세요." };
   reviewRunning = true;
   try {
     const cfg = await prisma.codeReviewConfig.findUnique({ where: { id: "default" } });
     if (!cfg || !cfg.workspace || !cfg.token || !cfg.model) return { ok: false, message: "코드리뷰 설정이 완료되지 않았습니다." };
+
     const prRes = await bbRepo(cfg, repoSlug, `/pullrequests/${prId}`);
-    if (!prRes.ok) return { ok: false, message: `PR 조회 실패 (${prRes.status})` };
+    if (!prRes.ok) return { ok: false, message: `PR 조회 실패 (${prRes.status}: ${(await prRes.text().catch(() => "")).slice(0, 150)})` };
     const pr = await prRes.json();
     if (String(pr.state) !== "OPEN") return { ok: false, message: `열린 PR 이 아닙니다 (상태: ${pr.state}). 재리뷰는 OPEN 상태에서만 가능합니다.` };
 
-    // 이 PR 에 봇이 남긴 기존 코멘트 삭제
-    const priorLogs = await prisma.codeReviewLog.findMany({ where: { repoSlug, prId, status: "posted" } });
-    for (const log of priorLogs) {
+    const priorLogs = await prisma.codeReviewLog.findMany({ where: { repoSlug, prId } });
+    const priorPosted = priorLogs.filter((l) => l.status === "posted");
+    const wasApproved = priorPosted.some((l) => l.approval === "approved");
+
+    // 1) 먼저 재리뷰(새 코멘트 게시). 실패하면 기존 코멘트·승인·이력은 그대로 둔다.
+    const r = await reviewOnePr(cfg, repoSlug, pr, { skipSameDiff: false });
+    if (r.outcome !== "reviewed") {
+      return { ok: false, message: `재리뷰 실패 — ${r.detail || "원인 미상"} · 기존 리뷰는 보존됨` };
+    }
+
+    // 2) 성공했으니 이전 봇 코멘트 삭제 + 이전 이력 삭제(새 리뷰 로그는 유지)
+    for (const log of priorPosted) {
       if (log.commentId) await bbRepo(cfg, repoSlug, `/pullrequests/${prId}/comments/${log.commentId}`, { method: "DELETE" }).catch(() => {});
     }
-    // 이전에 자동 승인했다면 승인 취소
-    const wasApproved = priorLogs.some((l) => l.approval === "approved");
-    if (wasApproved) await bbRepo(cfg, repoSlug, `/pullrequests/${prId}/approve`, { method: "DELETE" }).catch(() => {});
-    // 이 PR 의 기존 이력 삭제 후 강제 재리뷰(스킵 없음)
-    await prisma.codeReviewLog.deleteMany({ where: { repoSlug, prId } });
-    const r = await reviewOnePr(cfg, repoSlug, pr, { skipSameDiff: false });
-    return { ok: r.outcome !== "error", message: r.detail + (wasApproved ? " · 이전 승인 취소됨" : "") };
+    if (priorLogs.length) await prisma.codeReviewLog.deleteMany({ where: { id: { in: priorLogs.map((l) => l.id) } } });
+
+    // 3) 새 리뷰가 승인하지 않았는데 이전에 승인돼 있었다면 승인 취소
+    const newLog = await prisma.codeReviewLog.findFirst({ where: { repoSlug, prId, status: "posted" }, orderBy: { createdAt: "desc" } });
+    let approvalNote = "";
+    if (wasApproved && newLog?.approval !== "approved") {
+      await bbRepo(cfg, repoSlug, `/pullrequests/${prId}/approve`, { method: "DELETE" }).catch(() => {});
+      approvalNote = " · 이전 승인 취소됨";
+    }
+    return { ok: true, message: r.detail + approvalNote };
+  } catch (e: any) {
+    console.error("[codereview] rerun error", e);
+    return { ok: false, message: `재실행 오류: ${e?.message ?? String(e)}` };
   } finally {
     reviewRunning = false;
   }
