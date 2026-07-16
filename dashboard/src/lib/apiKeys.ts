@@ -7,11 +7,20 @@ function sha256(s: string) {
 }
 
 // 단일 토큰 발급 (OpenAI 스타일). DB 에는 해시만 저장하고 토큰은 이때 1회만 반환.
-export async function generateKey(name: string, rateLimit = 30) {
+// createdBy: 발행한 관리자 계정(계정별 사용량 집계용). 비우면 발행자 미기록.
+export async function generateKey(
+  name: string,
+  rateLimit = 30,
+  createdBy?: { id: string; email: string },
+) {
   const token = "sk-" + randomBytes(32).toString("hex");
   const display = token.slice(0, 11) + "…" + token.slice(-4); // 표시용 prefix
   await prisma.apiKey.create({
-    data: { name, apiKey: display, secretHash: sha256(token), rateLimit },
+    data: {
+      name, apiKey: display, secretHash: sha256(token), rateLimit,
+      createdById: createdBy?.id ?? null,
+      createdByEmail: createdBy?.email ?? null,
+    },
   });
   return { apiKey: token }; // 전체 토큰은 이 응답에서만 노출
 }

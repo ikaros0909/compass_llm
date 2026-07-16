@@ -4,8 +4,10 @@ import { useState } from "react";
 import { fetcher } from "@/lib/fetcher";
 import PageHeader from "@/components/PageHeader";
 import {
-  UserPlus, Trash2, KeyRound, ShieldCheck, Eye, Users, Lock,
+  UserPlus, Trash2, KeyRound, ShieldCheck, Eye, Users, Lock, BarChart3, X,
 } from "lucide-react";
+
+const nf = new Intl.NumberFormat("ko-KR");
 
 export default function AccountsPage() {
   const { data: me } = useSWR("/api/admin/me", fetcher);
@@ -16,6 +18,7 @@ export default function AccountsPage() {
   const [pw, setPw] = useState("");
   const [role, setRole] = useState("viewer");
   const [msg, setMsg] = useState("");
+  const [detail, setDetail] = useState<{ id: string; email: string } | null>(null);
 
   async function create() {
     setMsg("");
@@ -84,18 +87,21 @@ export default function AccountsPage() {
           {/* 계정 목록 */}
           <div className="card !p-0 overflow-hidden">
             <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[36rem]">
+            <table className="w-full text-sm min-w-[48rem]">
               <thead className="text-muted text-left text-xs uppercase tracking-wide">
                 <tr className="border-b border-border">
                   <th className="font-medium px-5 py-3">이메일</th>
                   <th className="font-medium px-3 py-3">역할</th>
+                  <th className="font-medium px-3 py-3 text-right">발행 키</th>
+                  <th className="font-medium px-3 py-3 text-right">토큰 (30일)</th>
+                  <th className="font-medium px-3 py-3 text-right">요청 (30일)</th>
                   <th className="font-medium px-3 py-3">생성일</th>
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
               <tbody>
                 {users.length === 0 && (
-                  <tr><td colSpan={4} className="px-5 py-12 text-center text-faint">
+                  <tr><td colSpan={7} className="px-5 py-12 text-center text-faint">
                     <Users className="w-8 h-8 mx-auto mb-2 opacity-50" /> 계정이 없습니다.
                   </td></tr>
                 )}
@@ -110,8 +116,14 @@ export default function AccountsPage() {
                         <option value="admin">admin</option>
                       </select>
                     </td>
+                    <td className="px-3 py-3.5 text-right tabular-nums">{u.keyCount ?? 0}</td>
+                    <td className="px-3 py-3.5 text-right tabular-nums">{nf.format(u.tokens30d ?? 0)}</td>
+                    <td className="px-3 py-3.5 text-right tabular-nums text-muted">{nf.format(u.requests30d ?? 0)}</td>
                     <td className="px-3 py-3.5 text-muted">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td className="px-5 py-3.5 text-right space-x-1.5 whitespace-nowrap">
+                      <button className="btn-ghost !px-2.5 !py-1.5 !text-xs" onClick={() => setDetail({ id: u.id, email: u.email })}>
+                        <BarChart3 className="w-3.5 h-3.5" /> 상세
+                      </button>
                       <button className="btn-ghost !px-2.5 !py-1.5 !text-xs" onClick={() => resetPw(u.id, u.email)}>
                         <KeyRound className="w-3.5 h-3.5" /> 비밀번호
                       </button>
@@ -127,6 +139,121 @@ export default function AccountsPage() {
           </div>
         </>
       )}
+
+      {detail && <UsageModal userId={detail.id} email={detail.email} onClose={() => setDetail(null)} />}
+    </div>
+  );
+}
+
+function UsageModal({ userId, email, onClose }: { userId: string; email: string; onClose: () => void }) {
+  const { data, isLoading } = useSWR(`/api/admin/users/${userId}/usage?days=30`, fetcher);
+  const keys = data?.keys ?? [];
+  const daily = data?.daily ?? [];
+  const totalTokens = daily.reduce((a: number, d: any) => a + d.total, 0);
+  const totalReq = daily.reduce((a: number, d: any) => a + d.requests, 0);
+  const maxTotal = Math.max(1, ...daily.map((d: any) => d.total));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="card w-full max-w-3xl max-h-[85vh] overflow-y-auto animate-fade-in" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <div className="text-base font-semibold flex items-center gap-2"><BarChart3 className="w-4 h-4 text-accent-2" /> 사용량 상세</div>
+            <div className="text-sm text-muted mt-0.5">{email} · 최근 30일 (KST 기준)</div>
+          </div>
+          <button className="btn-ghost !px-2 !py-2" onClick={onClose}><X className="w-4 h-4" /></button>
+        </div>
+
+        {isLoading ? (
+          <div className="py-12 text-center text-faint text-sm">불러오는 중…</div>
+        ) : (
+          <>
+            {/* 요약 */}
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              <Stat label="발행 키" value={nf.format(keys.length)} />
+              <Stat label="총 토큰 (30일)" value={nf.format(totalTokens)} />
+              <Stat label="총 요청 (30일)" value={nf.format(totalReq)} />
+            </div>
+
+            {/* 발행한 키 목록 */}
+            <div className="text-xs text-muted mb-1.5 uppercase tracking-wide">발행한 API 키</div>
+            {keys.length === 0 ? (
+              <p className="text-sm text-faint mb-5">이 계정이 발행한 API 키가 없습니다.</p>
+            ) : (
+              <div className="border border-border rounded-lg overflow-hidden mb-5">
+                <table className="w-full text-xs">
+                  <thead className="text-faint text-left">
+                    <tr className="border-b border-border">
+                      <th className="font-medium px-3 py-2">이름</th>
+                      <th className="font-medium px-3 py-2">키</th>
+                      <th className="font-medium px-3 py-2 text-right">토큰</th>
+                      <th className="font-medium px-3 py-2 text-right">요청</th>
+                      <th className="font-medium px-3 py-2">상태</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {keys.map((k: any) => (
+                      <tr key={k.id} className="border-b border-border/50 last:border-0">
+                        <td className="px-3 py-2 font-medium">{k.name}</td>
+                        <td className="px-3 py-2 font-mono text-muted">{k.apiKey}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{nf.format(k.tokens)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{nf.format(k.requests)}</td>
+                        <td className="px-3 py-2">{k.isActive ? <span className="badge badge-on">활성</span> : <span className="badge badge-off">비활성</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* 일별 사용량 */}
+            <div className="text-xs text-muted mb-1.5 uppercase tracking-wide">일별 사용량</div>
+            {daily.length === 0 ? (
+              <p className="text-sm text-faint">최근 30일 사용 기록이 없습니다.</p>
+            ) : (
+              <div className="border border-border rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="text-faint text-left">
+                    <tr className="border-b border-border">
+                      <th className="font-medium px-3 py-2">날짜</th>
+                      <th className="font-medium px-3 py-2 text-right">입력</th>
+                      <th className="font-medium px-3 py-2 text-right">출력</th>
+                      <th className="font-medium px-3 py-2 text-right">합계</th>
+                      <th className="font-medium px-3 py-2 text-right">요청</th>
+                      <th className="font-medium px-3 py-2 w-1/4">비중</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {daily.map((d: any) => (
+                      <tr key={d.day} className="border-b border-border/50 last:border-0">
+                        <td className="px-3 py-2 tabular-nums">{d.day}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{nf.format(d.input)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{nf.format(d.output)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">{nf.format(d.total)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{nf.format(d.requests)}</td>
+                        <td className="px-3 py-2">
+                          <div className="h-1.5 rounded-full bg-elevated overflow-hidden">
+                            <div className="h-full bg-accent-2/70 rounded-full" style={{ width: `${(d.total / maxTotal) * 100}%` }} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
+      <div className="text-xs text-faint">{label}</div>
+      <div className="text-lg font-semibold tabular-nums mt-0.5">{value}</div>
     </div>
   );
 }

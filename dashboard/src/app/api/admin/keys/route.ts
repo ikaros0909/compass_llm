@@ -24,6 +24,7 @@ export async function GET() {
       isActive: k.isActive,
       rateLimit: k.rateLimit,
       createdAt: k.createdAt,
+      createdByEmail: k.createdByEmail,
       usage24h: usageMap.get(k.id) ?? 0,
     })),
   });
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
   const { name, rateLimit } = await req.json();
   if (!name?.trim()) return NextResponse.json({ error: "name required" }, { status: 400 });
   // secretKey 는 이 응답에서 단 1회만 노출
-  const created = await generateKey(name.trim(), rateLimit ?? 30);
+  const created = await generateKey(name.trim(), rateLimit ?? 30, { id: session!.sub, email: session!.email });
   audit("apikey.create", { by: session!.email, name: name.trim(), rateLimit: rateLimit ?? 30 });
   return NextResponse.json(created);
 }

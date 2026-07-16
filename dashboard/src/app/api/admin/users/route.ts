@@ -19,8 +19,38 @@ export async function GET() {
   const { error } = await requireAdmin();
   if (error) return error;
   const users = await prisma.adminUser.findMany({ orderBy: { createdAt: "asc" } });
+
+  // 계정별 사용량: 계정이 발행한 API 키들 → 최근 30일 RequestLog 토큰/요청 집계.
+  const keys = await prisma.apiKey.findMany({ select: { id: true, createdById: true } });
+  const keyOwner = new Map(keys.map((k) => [k.id, k.createdById]));
+  const keyCount = new Map<string, number>();
+  for (const k of keys) if (k.createdById) keyCount.set(k.createdById, (keyCount.get(k.createdById) ?? 0) + 1);
+
+  const since = new Date(Date.now() - 30 * 24 * 3600_000);
+  const usage = await prisma.requestLog.groupBy({
+    by: ["apiKeyId"],
+    where: { createdAt: { gte: since }, apiKeyId: { not: null } },
+    _sum: { inputTokens: true, outputTokens: true },
+    _count: { _all: true },
+  });
+  // 키 사용량을 발행 계정으로 롤업
+  const acc = new Map<string, { tokens: number; requests: number }>();
+  for (const u of usage) {
+    const owner = u.apiKeyId ? keyOwner.get(u.apiKeyId) : null;
+    if (!owner) continue; // 발행자 미기록(기존 키)·삭제된 키는 계정 집계에서 제외
+    const cur = acc.get(owner) ?? { tokens: 0, requests: 0 };
+    cur.tokens += (u._sum.inputTokens ?? 0) + (u._sum.outputTokens ?? 0);
+    cur.requests += u._count._all;
+    acc.set(owner, cur);
+  }
+
   return NextResponse.json({
-    users: users.map((u) => ({ id: u.id, email: u.email, role: u.role, createdAt: u.createdAt })),
+    users: users.map((u) => ({
+      id: u.id, email: u.email, role: u.role, createdAt: u.createdAt,
+      keyCount: keyCount.get(u.id) ?? 0,
+      tokens30d: acc.get(u.id)?.tokens ?? 0,
+      requests30d: acc.get(u.id)?.requests ?? 0,
+    })),
   });
 }
 

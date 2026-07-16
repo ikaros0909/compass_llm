@@ -91,6 +91,7 @@ export default function ApiKeysPage() {
             <tr className="border-b border-border">
               <th className="font-medium px-5 py-3">이름</th>
               <th className="font-medium px-3 py-3">API Key</th>
+              <th className="font-medium px-3 py-3">발행 계정</th>
               <th className="font-medium px-3 py-3">24h 사용</th>
               <th className="font-medium px-3 py-3">분당 한도</th>
               <th className="font-medium px-3 py-3">상태</th>
@@ -99,7 +100,7 @@ export default function ApiKeysPage() {
           </thead>
           <tbody>
             {keys.length === 0 && (
-              <tr><td colSpan={6} className="px-5 py-12 text-center text-faint">
+              <tr><td colSpan={7} className="px-5 py-12 text-center text-faint">
                 <KeyRound className="w-8 h-8 mx-auto mb-2 opacity-50" /> 발급된 키가 없습니다.
               </td></tr>
             )}
@@ -107,6 +108,7 @@ export default function ApiKeysPage() {
               <tr key={k.apiKey} className="table-row">
                 <td className="px-5 py-3.5 font-medium">{k.name}</td>
                 <td className="px-3 py-3.5 font-mono text-xs text-muted">{k.apiKey}</td>
+                <td className="px-3 py-3.5 text-xs text-muted">{k.createdByEmail ?? <span className="text-faint">—</span>}</td>
                 <td className="px-3 py-3.5 tabular-nums">{k.usage24h}</td>
                 <td className="px-3 py-3.5 text-muted">{k.rateLimit}/분</td>
                 <td className="px-3 py-3.5">

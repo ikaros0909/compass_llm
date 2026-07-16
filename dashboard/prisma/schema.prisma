@@ -27,8 +27,14 @@ model ApiKey {
   secretHash  String       @unique // sha256(토큰) — 단일 토큰 조회 키
   isActive    Boolean      @default(true)
   rateLimit   Int          @default(30)
+  // 발행 계정 추적 — 계정별 사용량 집계용. 관계(FK) 대신 스냅샷 저장:
+  // 계정이 삭제·이메일 변경돼도 발행 이력은 남긴다. (기존 키는 null)
+  createdById    String?   // AdminUser.id (발행 당시)
+  createdByEmail String?   // 발행 당시 이메일 스냅샷
   createdAt   DateTime     @default(now())
   requestLogs RequestLog[]
+
+  @@index([createdById])
 }
 
 model RequestLog {
