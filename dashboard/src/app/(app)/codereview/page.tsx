@@ -7,6 +7,13 @@ import {
   GitPullRequest, Save, Play, CheckCircle2, XCircle, Loader2, Info, ChevronDown, ChevronUp, FolderSearch, User, RotateCcw,
 } from "lucide-react";
 
+// 시각 압축: 년·초 생략 → "M/D HH:mm" (전체 값은 툴팁으로)
+function fmtTime(at: string): string {
+  const d = new Date(at);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export default function CodeReviewPage() {
   const { data, mutate } = useSWR("/api/admin/codereview", fetcher, { refreshInterval: 10000 });
   const { data: modelsData } = useSWR("/api/admin/models", fetcher);
@@ -253,12 +260,12 @@ export default function CodeReviewPage() {
         <table className="w-full text-sm min-w-[56rem]">
           <thead className="text-muted text-left text-xs uppercase tracking-wide">
             <tr className="border-b border-border">
-              <th className="font-medium px-5 py-3">시각</th><th className="font-medium px-3 py-3">저장소</th><th className="font-medium px-3 py-3">PR</th>
+              <th className="font-medium px-5 py-3 whitespace-nowrap">재실행 · 시각</th><th className="font-medium px-3 py-3">저장소</th><th className="font-medium px-3 py-3">PR</th>
               <th className="font-medium px-3 py-3">요청자</th>
               <th className="font-medium px-3 py-3">커밋</th><th className="font-medium px-3 py-3 whitespace-nowrap">모델</th>
               <th className="font-medium px-3 py-3 text-center whitespace-nowrap">승인</th>
               <th className="font-medium px-3 py-3 whitespace-nowrap">품질</th>
-              <th className="font-medium px-3 py-3 text-center whitespace-nowrap">메모 · 재실행</th>
+              <th className="font-medium px-3 py-3 text-center whitespace-nowrap">메모</th>
             </tr>
           </thead>
           <tbody>
@@ -269,7 +276,16 @@ export default function CodeReviewPage() {
               return (
               <Fragment key={l.id}>
               <tr className={`table-row ${open ? "bg-elevated/30" : l.needsReview ? "bg-danger/5" : ""}`}>
-                <td className="px-5 py-3 whitespace-nowrap text-muted tabular-nums">{new Date(l.at).toLocaleString()}</td>
+                <td className="px-5 py-3 whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => rerun(l)} disabled={!!rerunId}
+                      title="이 PR 다시 리뷰 — 기존 코멘트 삭제 + (승인됐다면) 승인 취소 후 재리뷰"
+                      className="grid place-items-center w-7 h-7 rounded-md text-accent-2 ring-1 ring-border bg-elevated/40 hover:bg-accent/15 hover:ring-accent/40 disabled:opacity-40 shrink-0 transition-colors">
+                      {rerunId === l.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                    </button>
+                    <span className="text-muted tabular-nums text-xs" title={new Date(l.at).toLocaleString()}>{fmtTime(l.at)}</span>
+                  </div>
+                </td>
                 <td className="px-3 py-3 font-mono text-xs text-muted">{l.repoSlug}</td>
                 <td className="px-3 py-3">
                   <div className="flex items-center gap-1.5 max-w-[16rem]">
@@ -323,11 +339,6 @@ export default function CodeReviewPage() {
                     <span className="ml-1 text-info text-xs align-middle cursor-default"
                       title={`기존 코드 참고 권고 ${l.advisories.length}건 (이번 PR 과 무관 · 승인·품질에 미반영)`}>💡{l.advisories.length}</span>
                   )}
-                  <button onClick={() => rerun(l)} disabled={!!rerunId}
-                    title="이 PR 다시 리뷰 — 기존 코멘트 삭제 + (승인됐다면) 승인 취소 후 재리뷰"
-                    className="ml-1.5 align-middle text-faint hover:text-accent-2 disabled:opacity-40 transition-colors">
-                    {rerunId === l.id ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : <RotateCcw className="w-3.5 h-3.5 inline" />}
-                  </button>
                 </td>
               </tr>
               {open && (l.message || l.reviewReasons?.length > 0 || l.advisories?.length > 0) && (
