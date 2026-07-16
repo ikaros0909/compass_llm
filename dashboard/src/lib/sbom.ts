@@ -90,7 +90,8 @@ export function startSbomPoller() {
       const s = await prisma.sbomConfig.findUnique({ where: { id: "default" } });
       if (!s?.enabled) return;
       const now = new Date();
-      const today = now.toISOString().slice(0, 10);
+      // 로컬(컨테이너 TZ) 기준 날짜 — getHours 와 일관되게 맞춰야 UTC 자정 롤오버 시 중복 실행 방지
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       if (lastRunDate === today) return; // 오늘 이미 실행
       if (now.getHours() < s.scanHour) return; // 아직 지정 시각 전
       running = true;
