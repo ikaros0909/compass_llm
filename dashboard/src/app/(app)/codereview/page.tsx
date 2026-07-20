@@ -421,10 +421,10 @@ function ReviewTrendCard() {
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={240}>
-          <LineChart data={series} margin={{ left: -12, right: 8, top: 4 }}>
+          <LineChart data={series} margin={{ left: 6, right: 8, top: 4 }}>
             <CartesianGrid stroke="#222c3d" vertical={false} />
             <XAxis dataKey="date" stroke="#5a6678" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(d) => String(d).slice(5)} minTickGap={24} />
-            <YAxis stroke="#5a6678" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} width={34} />
+            <YAxis stroke="#5a6678" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} width={46} />
             <Tooltip contentStyle={{ background: "#131926", border: "1px solid #222c3d", borderRadius: 12, fontSize: 12 }} labelStyle={{ color: "#8a97ad" }} />
             <Line type="monotone" dataKey="reviews" name="리뷰" stroke="#818cf8" strokeWidth={2} dot={false} />
             <Line type="monotone" dataKey="approved" name="자동승인" stroke="#22c55e" strokeWidth={2} dot={false} />
