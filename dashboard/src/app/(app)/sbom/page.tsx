@@ -199,8 +199,9 @@ export default function SbomPage() {
 
   const repos: any[] = data?.repos ?? [];
   const scanning = data?.scanning ?? { running: false, total: 0, done: 0, current: "" };
-  const totalCrit = repos.reduce((a, r) => a + (r.critical ?? 0), 0);
-  const totalHigh = repos.reduce((a, r) => a + (r.high ?? 0), 0);
+  const totals = data?.totals ?? { critical: 0, high: 0, medium: 0, low: 0, scanned: 0 };
+  const totalCrit = totals.critical;
+  const totalHigh = totals.high;
   // 불러온 목록 + 저장된 선택(목록에 없어도) 병합
   const known = new Set(repoList.map((r) => r.slug));
   const pickerRows = [...repoList, ...form.repoSlugs.filter((s) => !known.has(s)).map((s) => ({ slug: s, name: s }))];
@@ -314,6 +315,17 @@ export default function SbomPage() {
               </tr>
             </thead>
             <tbody>
+              {repos.length > 0 && (
+                <tr className="border-b border-border bg-elevated/40 text-xs">
+                  <td className="px-5 py-2.5 font-medium">총계 <span className="text-faint font-normal">({totals.scanned}개 저장소 합계)</span></td>
+                  <td className="px-3 py-2.5"></td>
+                  <td className="px-3 py-2.5 text-center"><Count n={totals.critical} cls={SEV.CRITICAL.cls} /></td>
+                  <td className="px-3 py-2.5 text-center"><Count n={totals.high} cls={SEV.HIGH.cls} /></td>
+                  <td className="px-3 py-2.5 text-center"><Count n={totals.medium} cls={SEV.MEDIUM.cls} /></td>
+                  <td className="px-3 py-2.5 text-center"><Count n={totals.low} cls={SEV.LOW.cls} /></td>
+                  <td className="px-3 py-2.5" colSpan={2}></td>
+                </tr>
+              )}
               {repos.length === 0 && <tr><td colSpan={8} className="px-5 py-12 text-center text-faint"><ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-50" />검사할 저장소를 선택·저장하고 "지금 스캔"을 눌러보세요.</td></tr>}
               {repos.map((r) => (
                 <Fragment key={r.repoSlug}>
@@ -326,6 +338,7 @@ export default function SbomPage() {
                           {scanning.running && scanning.current === r.repoSlug ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
                         </button>
                         <span>{r.repoSlug}</span>
+                        {r.lastError && <span title="최근 스캔 시도가 실패해 직전 성공 결과를 표시 중입니다" className="text-warn text-[11px] shrink-0">⚠</span>}
                       </div>
                     </td>
                     <td className="px-3 py-3 font-mono text-xs whitespace-nowrap">
